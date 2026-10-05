@@ -63,7 +63,7 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
     "vite-plugin-pwa": "^1.0.3",
-    "vitest": "^3.2.4",
+    "vitest": "^5.0.3",
     "vitest-axe": "1.0.0-pre.5",
     "workbox-window": "^7.4.1"
   }
