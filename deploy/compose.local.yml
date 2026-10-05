@@ -1,0 +1,30 @@
+# Local verification override (docs/self-hosting.md, "Verify the deployment"):
+# publishes the app on 127.0.0.1:4000 with NO caddy/TLS. Target just the
+# services you need and the edge stays down:
+#
+#   docker compose -f compose.yaml -f deploy/compose.local.yml up -d scylladb cytale
+#   curl http://127.0.0.1:4000/health
+#
+# The terminal path locally (the host publishes 2222 on every interface in the
+# base file; this override narrows it to loopback so a laptop does not hand SSH
+# out on the LAN):
+#
+#   docker compose -f compose.yaml -f deploy/compose.local.yml up -d ssh-host
+#   ssh -l <username> -p 2222 -i ~/.ssh/id_ed25519 127.0.0.1
+#
+# Teardown (THROWAWAY volumes — never run this against real data):
+#   docker compose -f compose.yaml -f deploy/compose.local.yml down -v
+
+services:
+  cytale:
+    ports:
+      - "127.0.0.1:4000:4000"
+
+  ssh-host:
+    # `!override` REPLACES the base file's publish list instead of appending to
+    # it (Compose ≥ 2.24; without the tag the two publishes would both bind and
+    # the container would fail to start). The container-side port stays 2222.
+    # On an older Compose, delete this block: the base publish already covers
+    # 127.0.0.1, it just binds every interface as well.
+    ports: !override
+      - "127.0.0.1:${CYTALE_SSH_PORT:-2222}:2222"

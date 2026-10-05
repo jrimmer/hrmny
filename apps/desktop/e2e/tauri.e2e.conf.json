@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "chat.hrmny.desktop.e2e",
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*; img-src 'self' data: blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "build": {
+    "beforeBuildCommand": "pnpm --filter @cytale/web exec vite build --mode e2e"
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false
+  }
+}

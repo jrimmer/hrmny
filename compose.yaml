@@ -1,0 +1,405 @@
+# Cytale — portable single-node deploy (runbook: docs/self-hosting.md).
+#
+#   cp .env.example .env   # fill in the three secrets (+ domain/email)
+#   docker compose up -d --build
+#
+# ScyllaDB stays on the internal compose network (no published ports); Caddy
+# terminates TLS and proxies to cytale:4000. The cytale image is built from
+# the root Dockerfile (SPA + Elixir release + NIFs, self-contained).
+# Voice (U12): eturnal (TURN) + the app's UDP media range are published —
+# media NEVER traverses Caddy (deploy/Caddyfile is signaling-only).
+# Terminal (U17): `ssh-host` is the SSH front door for the terminal client. It
+# joins a DEDICATED internal network that no other service is on (so the
+# session bridge it calls is off the shared network), and it publishes exactly
+# one port — SSH. The bridge itself is never published. See docs/self-hosting.md
+# ("SSH host").
+
+name: cytale
+
+# Docker's default json-file log driver is UNBOUNDED: a chatty or crash-looping
+# container fills the host disk, and on this single-node deploy that also takes
+# Scylla's data volume down with it, since both share the host filesystem. Cap
+# and rotate every service's log (hardening plan 7.11). 10m × 3 = 30 MB per
+# container, so even five services in a tight loop cannot exceed ~150 MB.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  scylladb:
+    # Exact stable pin (verified on Docker Hub; the 6.2 line is EOL-stale).
+    # Developer mode + smp/memory caps mirror the pinned-box posture
+    # (AGENTS.md: never hand Scylla more than the box can spare). NOTE:
+    # cgroup page cache counts against mem_limit, so the limit needs ~1.5g
+    # of headroom above seastar's --memory or boot fails with
+    # "insufficient physical memory".
+    image: scylladb/scylla:2026.2.6
+    command:
+      - --developer-mode=1
+      - --smp=2
+      - --memory=1200M
+      - --overprovisioned=1
+      # scylla.schema (SimpleStrategy) predates tablets; 2026.2 defaults
+      # new keyspaces to tablets which rejects SimpleStrategy outright.
+      # Same flag the dev container runs.
+      - --tablets-mode-for-new-keyspaces=disabled
+    mem_limit: 3g
+    volumes:
+      - scylla:/var/lib/scylla
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep -q '^UN'"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+    logging: *default-logging
+
+  cytale:
+    # Dual-mode: default is the published image (CI pushes one per commit to
+    # main). `docker compose pull && docker compose up -d` runs it — no
+    # toolchain, no compile on the target. `build:` stays for on-host builds
+    # (`up -d --build`); pin a tag via CYTALE_IMAGE in .env for rollback, or
+    # point it at your own registry.
+    image: ${CYTALE_IMAGE:-ghcr.io/jrimmer/hrmny:latest}
+    build:
+      context: .
+      # Build identity for the rail's version badge: the image build has no
+      # .git and no git binary, so the commit has to come in from here —
+      #   CYTALE_VERSION=$(git rev-parse --short=7 HEAD) docker compose build
+      args:
+        CYTALE_VERSION: ${CYTALE_VERSION:-}
+    init: true # zombie reaping for NIF child processes
+    # Hardening plan 7.11: bound a runaway app (a leaking process, a NIF that
+    # pins memory) so it OOM-kills ITSELF rather than the host and Scylla's
+    # data. Sizing: the deploy prerequisite (docs/self-hosting.md) is ~4 GB free,
+    # of which Scylla's limit is 3g — leaving ~1g for the app. That is ample
+    # for a small Elixir VM: the app is REST + the gateway socket + Rust NIFs,
+    # media NEVER lands in the BEAM (eturnal relays it), and the per-session
+    # socket heap is capped at 16 MB with a healthy session near 100 KB
+    # (runtime.exs, "Gateway socket memory bound"). As with the scylla block
+    # above, cgroup page cache counts against the limit, so 1g keeps real
+    # headroom over the VM's own footprint; raise it with CYTALE_* knobs only
+    # if a measured peak needs it.
+    mem_limit: 1g
+    # Give a graceful stop time to finish an in-flight BACKUP (hardening plan
+    # 4.8): docker's default 10s sends SIGKILL mid-walk, which is the usual
+    # cause of the partial archives prune used to count as real. The archive
+    # build also writes into `.staging-<id>/` and renames the tar into place
+    # only after its sidecar, so even a SIGKILLed run can no longer leave a
+    # partial `<id>.tar` behind; this grace period is what lets it finish.
+    stop_grace_period: 2m
+    depends_on:
+      scylladb:
+        condition: service_healthy
+    # Readiness without extra tooling: the runtime image carries neither curl
+    # nor wget (kaniko's snapshotting dropped the apt layer in a CI
+    # sandbox — see Dockerfile.runtime), so the probe drives the release's own
+    # RPC: start :inets, GET /health/ready on the app's own loopback port, and
+    # require HTTP 200. /health/ready (not /health) because this is the
+    # off-box-prober contract (#87): the shallow endpoint reports ok while the
+    # database is gone, and the wedge this probe exists to catch is precisely
+    # that. A bare `pid` proved only that the BEAM existed — a
+    # booted-but-wedged node (failed restore, dead Scylla pool) fronted Caddy
+    # green. Here any failure path (RPC unreachable during boot, connection
+    # refused, 503 from a dead dependency, non-200) is a throw →
+    # `bin/cytale rpc` exits nonzero → the probe fails. NOTE: rpc evaluates
+    # its argument as an ELIXIR expression (Code.eval_string on the remote
+    # node — kernel/cli.ex), hence the Elixir syntax; and start_period is
+    # generous because boot-restore starts the endpoint late. External HTTP
+    # checks belong to the deploy verification.
+    healthcheck:
+      test:
+        - CMD
+        - /app/bin/cytale
+        - rpc
+          case Application.ensure_all_started(:inets) do {:ok, _} -> case :httpc.request(:get, {~c(http://127.0.0.1:#{System.get_env(~s(PORT)) || ~s(4000)}/health/ready), []}, [], []) do {:ok, {{_, 200, _}, _, _}} -> :ok other -> throw({:health_probe_failed, other}) end other -> throw({:inets_start_failed, other}) end
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
+    env_file: .env
+    environment:
+      # Compose-internal contact point; overrides any .env value.
+      CYTALE_SCYLLA_NODES: scylladb:9042
+      # Attachment blobs (avatars, workspace icons, message files) MUST live on
+      # the mounted volume below. The release's own priv/ is the container's
+      # writable layer, so without this every `docker compose up -d` silently
+      # drops every upload (the DB keeps the hash, the file is gone → 404).
+      CYTALE_ATTACHMENTS_ROOT: /app/priv/attachments
+      # The Dev mailer's ONLY token sink — it deliberately never logs the
+      # token (P0-3), so a mailbox the release cannot write is a registration
+      # that creates the user row and then dies with no mail ever delivered.
+      # The code default is CWD-relative (tmp/dev_mailbox.jsonl → /app/tmp
+      # under the image WORKDIR), which is unwritable on a read-only rootfs AND
+      # dropped by every `up -d` recreate: keep it on a volume. .env wins.
+      CYTALE_DEV_MAILBOX: ${CYTALE_DEV_MAILBOX:-/app/priv/search/dev_mailbox.jsonl}
+      # Single source of truth for TURN auth (voice plan U12): ETURNAL_SECRET
+      # in .env feeds BOTH eturnal (its REST-auth verifier) and the app's
+      # credential MINTING (CYTALE_TURN_SECRET) — the app derives short-lived
+      # pairs from it and never ships the secret itself. Blank = no TURN
+      # (host-candidates-only ICE; media still works where UDP is reachable).
+      CYTALE_TURN_SECRET: ${ETURNAL_SECRET:-}
+      # The media range the PUBLISHED ports below map — set from the same
+      # interpolation so app config and publish can never drift inside
+      # compose (environment: overrides env_file:). A bare `docker run`
+      # without compose must still be kept in sync by hand (runbook).
+      CYTALE_MEDIA_UDP_PORT_RANGE: ${CYTALE_MEDIA_UDP_PORT_RANGE:-50000-50099}
+      # --- SSH terminal (U17) ---
+      # The certificate surface is OPT-IN and scoped: with the flag false the
+      # CA key is never read, so a deploy that has not provisioned one loses
+      # only the terminal and never chat (runtime.exs raises on the flag, not
+      # on the node). Flip it and the bridge flag together, after provisioning.
+      CYTALE_SSH_CERTIFICATES_ENABLED: ${CYTALE_SSH_CERTIFICATES_ENABLED:-false}
+      # The CA private key is a PATH, never a value (runtime.exs → KTD6). It is
+      # the operator's file, mounted read-only below.
+      CYTALE_SSH_CA_KEY_PATH: /run/cytale-ssh/ca_key
+      # The bridge's mint listener (R7/R8). It binds the DEDICATED internal
+      # network's address and nothing else: this container is also on the
+      # shared network (caddy, scylladb, eturnal), so 0.0.0.0 would put the
+      # bridge on that one too, which is the placement R8a forbids. The
+      # address is the same interpolation the internal network assigns, so the
+      # bind and the network cannot drift; a drift is a loud boot failure
+      # ("cannot assign requested address"), never a silent publication.
+      CYTALE_SESSION_BRIDGE_ENABLED: ${CYTALE_SESSION_BRIDGE_ENABLED:-false}
+      CYTALE_SESSION_BRIDGE_BIND: ${CYTALE_SSH_BRIDGE_BIND:-172.31.240.2}
+      CYTALE_SESSION_BRIDGE_PORT: "4100"
+      CYTALE_SESSION_BRIDGE_CREDENTIAL_PATH: /run/cytale-ssh/bridge_credential
+      # --- Server configuration (#121) ---
+      # The ONE editable JSON config document. Precedence: file > env > code
+      # default for every key the file names; the first boot generates it
+      # from the current env + defaults (plus the 0600 secrets.json beside
+      # it), and the Server Settings surface (operator tier) validates and
+      # writes it back atomically. The volume below makes both survive
+      # container replacement, and the restart endpoint relies on the
+      # `restart: unless-stopped` policy above to bring the node back.
+      CYTALE_SERVER_CONFIG_PATH: /etc/cytale/config.json
+    # The app reads the two secrets it needs (CA key, bridge credential) IN
+    # PLACE from the operator's read-only mount, so it needs read access to
+    # files owned root:10001 (see docs/self-hosting.md, "SSH host" → provisioning).
+    # The host adds the group itself; this container joins it explicitly and
+    # runs as the image's unprivileged user.
+    group_add:
+      - "10001"
+    ports:
+      # Voice media UDP (U12): the app's ex_webrtc ICE host-candidate span.
+      # MUST equal CYTALE_MEDIA_UDP_PORT_RANGE — the environment entry above
+      # feeds the app from the SAME interpolation this publish maps, so the
+      # two cannot drift inside compose; only a bare `docker run` can break
+      # the sync (failure mode + check documented in docs/self-hosting.md, "Voice
+      # calls").
+      - "${CYTALE_MEDIA_UDP_PORT_RANGE:-50000-50099}:${CYTALE_MEDIA_UDP_PORT_RANGE:-50000-50099}/udp"
+    volumes:
+      - attachments:/app/priv/attachments
+      - search:/app/priv/search
+      # Backups (hardening plan 1.5). Without this mount the default
+      # `backups.dir` ("backups", cwd-relative) resolved to /app/backups —
+      # INSIDE the container's writable layer — so every `docker compose up -d`
+      # (i.e. every upgrade) silently destroyed every archive. Worse, backups
+      # kept SUCCEEDING into the fresh directory, so the staleness alert never
+      # fired: unbounded RPO with green probes. docs/restore-drill.md had this
+      # recorded as a mandatory manual pre-step; it is now the default.
+      #
+      # Mounted at the path the default already resolves to (WORKDIR is /app in
+      # both Dockerfile.runtime and the root Dockerfile's runtime stage), so no
+      # configuration is required. An operator who overrides `backups.dir` in
+      # config.json must mount their own path instead.
+      - backups:/app/backups
+      # Server config + secrets (#121): a named volume — the image creates
+      # /etc/cytale owned by the runtime user, so a fresh volume comes up
+      # writable for the first-boot generation and the config editor's save.
+      - server_config:/etc/cytale
+      # The operator's secret directory (U17), read-only. Keep it OUTSIDE the
+      # checkout on a real deploy (CYTALE_SSH_SECRETS_DIR=/etc/cytale/ssh):
+      # this path is the CA private key, the host private key and the bridge
+      # credential, and .gitignore does not cover the in-tree default.
+      - ${CYTALE_SSH_SECRETS_DIR:-./deploy/ssh}:/run/cytale-ssh:ro
+    networks:
+      # The shared network carries ScyllaDB, Caddy and eturnal; the app needs
+      # it, so it cannot also be the network the bridge binds.
+      default:
+      # The dedicated network (U17): the app and the SSH host, nothing else.
+      # The address is pinned to the SAME interpolation the bridge binds
+      # (CYTALE_SESSION_BRIDGE_BIND above), so "the bridge listens only on the
+      # internal network" is one value rather than two that agree today.
+      ssh-internal:
+        ipv4_address: ${CYTALE_SSH_BRIDGE_BIND:-172.31.240.2}
+    restart: unless-stopped
+    logging: *default-logging
+
+  # TURN for voice calls (voice plan KTD2/U12). eturnal verifies EPHEMERAL
+  # credentials (eturnal REST-auth): username = unix expiry timestamp,
+  # password = Base64(HMAC-SHA1(ETURNAL_SECRET, username)) — exactly the pair
+  # the app mints per read via GET /calls/ice, so the static secret never
+  # travels to clients. Secret, relay range and relay address are env-driven
+  # (ETURNAL_* below); deploy/eturnal.yml, mounted read-only, adds only the
+  # explicit relay PEER denylist (private, loopback, link-local, CGNAT and the
+  # compose networks — a TURN relay into them is SSRF) and leaves every env
+  # variable in charge. The relay address is autodetected via external STUN —
+  # override with ETURNAL_RELAY_IPV4_ADDR if that lookup cannot leave the
+  # host (see docs/self-hosting.md, "Voice calls").
+  eturnal:
+    image: eturnal/eturnal:1.12.2-r5
+    ports:
+      - "3478:3478" # STUN + TURN (RFC 5766 default), TCP
+      - "3478:3478/udp" # STUN + TURN, UDP — the path media uses
+      # TLS TURN (turns: on :5349) — uncomment after provisioning certs and
+      # mounting them (eturnal needs tls_crt_file/tls_key_file, i.e. a custom
+      # eturnal.yml); blocked-UDP clients escalate through it. See
+      # docs/self-hosting.md ("Voice calls" → TLS escalation).
+      # - "5349:5349"
+      # - "5349:5349/udp"
+      # TURN RELAY range, published 1:1 (a relayed address carries the port,
+      # so host and container ports must match). Keep DISJOINT from the app's
+      # media range above or the publishes collide.
+      - "${ETURNAL_RELAY_MIN_PORT:-51000}-${ETURNAL_RELAY_MAX_PORT:-51099}:${ETURNAL_RELAY_MIN_PORT:-51000}-${ETURNAL_RELAY_MAX_PORT:-51099}/udp"
+    environment:
+      ETURNAL_SECRET: ${ETURNAL_SECRET:-}
+      ETURNAL_RELAY_MIN_PORT: ${ETURNAL_RELAY_MIN_PORT:-51000}
+      ETURNAL_RELAY_MAX_PORT: ${ETURNAL_RELAY_MAX_PORT:-51099}
+      # Explicit relay IPv4 (skip boot-time autodetect); empty = autodetect.
+      # Also the single-host test topology's loopback-relay switch (U13):
+      # pin it to the host LAN IP and the relayed media path is traversable
+      # from the same machine.
+      ETURNAL_RELAY_IPV4_ADDR: ${ETURNAL_RELAY_IPV4_ADDR:-}
+    volumes:
+      # The peer denylist (security Tier 2 #6). Must stay readable by the
+      # image's eturnal user (uid 9000) — a repo checkout's 0644 is.
+      - ./deploy/eturnal.yml:/etc/eturnal.yml:ro
+    restart: unless-stopped
+    logging: *default-logging
+
+  caddy:
+    image: caddy:2.11.4
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Consumed by deploy/Caddyfile (site label + ACME account email).
+      CYTALE_DOMAIN: ${CYTALE_DOMAIN:?set CYTALE_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+      # Site scheme (deploy/Caddyfile): `http` when an external edge owns TLS.
+      CYTALE_EDGE_SCHEME: ${CYTALE_EDGE_SCHEME:-https}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      cytale:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+
+  # The SSH host (U17; R29, R29a): the terminal client's front door, and the
+  # product's authentication boundary. It terminates SSH, verifies the member's
+  # certificate, mints through the bridge, and spawns one client process per
+  # connection.
+  #
+  # PLACEMENT IS THE CONTROL, not the edge denial: this service joins ONLY the
+  # dedicated internal network, so ScyllaDB, eturnal and Caddy are not on a
+  # network it can reach, and it publishes exactly one port — SSH. The bridge
+  # it calls is not published at all and is not a route on the listener Caddy
+  # proxies (deploy/Caddyfile's denial is the second layer, not the control).
+  ssh-host:
+    # Dual-mode like the app: CI pushes this image per commit to main
+    # (built from Dockerfile.ssh-host), so a deploy target pulls it; `build:`
+    # stays for an on-host build. Pin a tag via CYTALE_SSH_HOST_IMAGE for
+    # rollback.
+    image: ${CYTALE_SSH_HOST_IMAGE:-ghcr.io/jrimmer/hrmny-ssh-host:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.ssh-host
+    # One client process per connection: init reaps what a session's process
+    # tree leaves behind, exactly as it does for the app's NIF children.
+    init: true
+    depends_on:
+      cytale:
+        condition: service_healthy
+    # A missing secret is a deterministic, fail-fast configuration error (the
+    # entrypoint names the file), not a transient fault — so the retry budget
+    # is capped and a crash loop cannot bury the one log line that says what is
+    # wrong. `docker compose logs ssh-host` is the diagnosis.
+    restart: on-failure:3
+    logging: *default-logging
+    environment:
+      # Every name below is read by cmd/cytale-ssh-host (apps/ssh-host/README.md
+      # is the surface; nothing here is invented). The three secret PATHS are
+      # set by the image's entrypoint, which materializes the read-only mounts
+      # into a writable path the host can unlink, and the client command is
+      # image-level (the image carries the client).
+      CYTALE_SSH_HOST_BRIDGE_URL: http://cytale:4100
+      # The PUBLIC origin: the client resolves its REST and gateway URLs from
+      # it, and the session-end message a member reads names it as the re-issue
+      # URL — so it must be the origin their browser can reach. Keep it equal to
+      # CYTALE_DOMAIN (docs/self-hosting.md, "SSH host" → sync requirements).
+      CYTALE_SSH_HOST_ORIGIN: ${CYTALE_SSH_HOST_ORIGIN:-https://${CYTALE_DOMAIN:-chat.example.com}}
+      CYTALE_SSH_HOST_ADDR: ":2222"
+      CYTALE_SSH_HOST_MAX_SESSION_DURATION: ${CYTALE_SSH_HOST_MAX_SESSION_DURATION:-12h}
+      CYTALE_SSH_HOST_IDLE_TIMEOUT: ${CYTALE_SSH_HOST_IDLE_TIMEOUT:-30m}
+    ports:
+      # The ONLY published port (R29). A TCP port, so it shares no
+      # (port, protocol) pair with the UDP media/relay ranges — see the
+      # collision check in docs/self-hosting.md, "SSH host" → ports. The container
+      # side is pinned at 2222 (Dockerfile.ssh-host EXPOSEs it); the published
+      # side is CYTALE_SSH_PORT.
+      - "${CYTALE_SSH_PORT:-2222}:2222"
+    volumes:
+      # The operator's secret directory, read-only: the entrypoint copies
+      # ca_key.pub, host_key and bridge_credential out of it and the host
+      # unlinks the copies. The originals are never modified, which is what
+      # keeps the host key (and every member's pinned fingerprint) stable
+      # across redeploys (R29a). Same directory the app mounts.
+      - ${CYTALE_SSH_SECRETS_DIR:-./deploy/ssh}:/run/cytale-ssh:ro
+      # Where those copies live until they are unlinked: a tmpfs, so the host
+      # private key and the bridge credential never touch the container's disk.
+      - type: tmpfs
+        target: /run/cytale-secrets
+        tmpfs:
+          size: 65536
+    # The host has no HTTP surface, and the image carries no HTTP client (its
+    # apt set is ca-certificates + libstdc++6, and Dockerfile.runtime's curl
+    # lesson is why nothing here assumes a tool that may not survive the CI
+    # builder's snapshotting). So liveness is a TCP connect to the listener,
+    # then close: bash's /dev/tcp needs nothing but the shell the image has.
+    # If it fails, no member could connect either, and `docker compose ps` says
+    # so.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/2222'"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - ssh-internal
+
+networks:
+  # The dedicated internal network (U17): `cytale` and `ssh-host`, nothing else.
+  # The subnet is explicit because the bridge's bind address is the app's
+  # address on this network (compose.yaml, cytale → ssh-internal); change one
+  # and you must change the other, which is why both read the same variable.
+  #
+  # NOT `internal: true`, and that is a measured decision rather than an
+  # oversight: Docker does not install the port-forwarding rule for a container
+  # whose ONLY network is marked internal, so the host boots and listens while
+  # the published SSH port is refused from the host (verified on this engine
+  # 2026-09-13; adding a second, plain network made the publish work again,
+  # which is the whole of what the flag would have bought). What R8a needs is
+  # the dedicated membership and the bridge's bind address — a network with two
+  # members, no published bridge port, and a bridge bound to that one address.
+  ssh-internal:
+    ipam:
+      config:
+        - subnet: ${CYTALE_SSH_NETWORK_SUBNET:-172.31.240.0/24}
+
+volumes:
+  scylla:
+  attachments:
+  search:
+  server_config:
+  # Backup archives (hardening plan 1.5): must outlive the container, because
+  # `docker compose up -d` recreates it on every upgrade.
+  backups:
+  caddy_data:
+  caddy_config:

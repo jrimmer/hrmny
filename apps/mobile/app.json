@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Hrmny",
+    "slug": "cytale",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "scheme": "cytale",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "chat.hrmny",
+      "buildNumber": "14",
+      "infoPlist": {
+        "UIApplicationSceneManifest": {
+          "UIApplicationSupportsMultipleScenes": false
+        }
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "chat.hrmny",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a1e",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Hrmny attaches photos you choose to a message.",
+          "cameraPermission": "Hrmny takes a photo to attach to a message."
+        }
+      ],
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "buildReactNativeFromSource": true
+          }
+        }
+      ],
+      "./plugins/withAndroidReleaseSigning",
+      "./plugins/withIosSceneLifecycle"
+    ]
+  }
+}

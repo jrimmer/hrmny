@@ -1,0 +1,19 @@
+{
+  "identifier": "desktop",
+  "description": "Cytale desktop shell capabilities. Deliberately minimal: only what the web app actually calls. The updater permission is granted now that the shell has a signing key and a feed (see docs/desktop-updates.md) — update payloads stay tamper-proof because every download is signature-verified against the pubkey baked into tauri.conf.json. The opener allowlist admits every https URL (WEB-1: message links, permalink chips and help links all open in the user's default browser; the old single-host entry made every other link a dead click) plus exactly one plain-http origin: http://localhost:5173 is tauri.conf.json's devUrl, the origin the call handoff (apps/web/src/features/calls/capability/handoff.ts) opens in `tauri dev`. Any other http URL — localhost on any other port included — is refused, so a message link can never reach a local service; the web side falls back to window.open for refusals.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "deep-link:default",
+    "window-state:default",
+    "updater:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://*" },
+        { "url": "http://localhost:5173/*" }
+      ]
+    }
+  ]
+}

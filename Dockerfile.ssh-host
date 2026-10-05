@@ -1,0 +1,274 @@
+# syntax=docker/dockerfile:1
+# Hrmny SSH host image (plan U17; R29, R29a) — the terminal client's front
+# door, and the product's authentication boundary.
+#
+# Built by CI and pushed to a container registry, because the deploy model is
+# pull-only (the maintainers' CI runs kaniko against this file; the GitHub
+# workflow uses BuildKit). Also buildable locally from the repository root:
+#
+#   docker build -f Dockerfile.ssh-host -t cytale-ssh-host .
+#
+# Three stages:
+#   clientbuild  node:22 + pnpm  → the terminal client, installed at /opt/cytale
+#   hostbuild    golang:1.27.1   → the static SSH host binary
+#   runtime      debian:bookworm-slim + both artifacts + the entrypoint that
+#                materializes the operator's secrets where the host can unlink
+#                them
+#
+# CLASSIC Dockerfile SYNTAX ON PURPOSE: the CI path builds this file with
+# kaniko, which parses the classic dialect — no BuildKit cache mounts, no
+# heredocs, no `COPY --chmod`. Keep it that way.
+
+# ---------------------------------------------------------------------------
+# Stage 1 — the terminal client (baked, not fetched at run time)
+# ---------------------------------------------------------------------------
+# The SSH host spawns the client as a CHILD PROCESS, so the image must carry a
+# runnable tree and a launcher at a stable absolute path — not an installer,
+# not a tarball, not a checkout. The client is TypeScript launched through the
+# repo's own runner (`apps/tui/package.json` → "start": "tsx src/client.ts"),
+# which keeps the deployed client the same program the suite tests: there is no
+# build step to diverge from.
+FROM node:22-bookworm-slim AS clientbuild
+
+# pnpm blocks on an interactive prompt when it thinks it is on a TTY
+# (/dev/console never EOFs) — the same CI=true the workflows set for it.
+ENV CI=1
+
+RUN corepack enable
+
+WORKDIR /repo
+
+# Every workspace importer's manifest, and nothing else: pnpm-lock.yaml resolves
+# ALL of them, so `--frozen-lockfile` fails on a missing one. Manifests before
+# sources so an install whose inputs have not changed stays cached.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
+COPY apps/desktop/package.json apps/desktop/
+COPY apps/mobile/package.json apps/mobile/
+COPY apps/server/package.json apps/server/
+COPY apps/tui/package.json apps/tui/
+COPY apps/web/package.json apps/web/
+COPY packages/api-client/package.json packages/api-client/
+COPY packages/calls/package.json packages/calls/
+COPY packages/domain/package.json packages/domain/
+COPY packages/emoji/package.json packages/emoji/
+COPY packages/gateway-client/package.json packages/gateway-client/
+COPY packages/markdown/package.json packages/markdown/
+COPY packages/protocol/package.json packages/protocol/
+COPY packages/session/package.json packages/session/
+COPY packages/state/package.json packages/state/
+COPY tools/load-test/package.json tools/load-test/
+
+# `pnpm-lock.yaml` declares `patchedDependencies` (react-native-worklets@0.13.0)
+# and `--frozen-lockfile` reads that patch file's hash during install, so it is
+# an install INPUT exactly like the manifests above. Without this line the
+# install aborts with `ENOENT … /repo/patches/react-native-worklets@0.13.0.patch`
+# (exit 254) — the failure the release lane reported as success for five days.
+COPY patches ./patches
+
+# `@cytale/tui...` is the client AND its workspace dependencies (the shared
+# packages that carry the wire contract — the reason a Go host and a TypeScript
+# client do not fork it). devDependencies are kept deliberately: tsx is one,
+# and tsx is how the client runs.
+RUN pnpm install --frozen-lockfile --filter @cytale/tui... --reporter=append-only
+
+# The client's own sources and the shared packages. Deliberately NOT `COPY apps`:
+# a checkout can carry gigabytes of build output that this image does not use
+# (apps/desktop/src-tauri/target, apps/mobile/{android,ios}) — and .dockerignore
+# does not exclude a nested `target` or those mobile outputs. What the runtime
+# stage copies below is exactly these 3 trees.
+COPY apps/tui ./apps/tui
+COPY packages ./packages
+
+# ---------------------------------------------------------------------------
+# Stage 2 — the SSH host binary
+# ---------------------------------------------------------------------------
+FROM golang:1.27.1-bookworm AS hostbuild
+
+WORKDIR /src/apps/ssh-host
+COPY apps/ssh-host/go.mod apps/ssh-host/go.sum ./
+RUN go mod download
+COPY apps/ssh-host ./
+
+# CGO off: the host is unix syscalls (PTY allocation, process groups, the token
+# descriptor) and no cgo, so a static binary keeps the runtime stage free of
+# any toolchain and of the build image's libc.
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+      -o /out/cytale-ssh-host ./cmd/cytale-ssh-host
+
+# ---------------------------------------------------------------------------
+# Stage 3 — runtime
+# ---------------------------------------------------------------------------
+FROM debian:bookworm-slim AS runtime
+
+# ca-certificates: the client speaks TLS to the public origin · libstdc++6: the
+# Node runtime copied below links it. Same package set and same statoverride
+# edit as Dockerfile.runtime (bookworm-slim ships a stale dpkg override for the
+# removed 'messagebus' group that aborts ANY apt-get install).
+ENV DEBIAN_FRONTEND=noninteractive
+RUN sed -i '/messagebus/d' /var/lib/dpkg/statoverride || true \
+ && apt-get update -qq \
+ && apt-get install -y --no-install-recommends ca-certificates libstdc++6 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Build-time DNS, OPTIONAL and empty by default — the same contract as
+# Dockerfile.runtime: kaniko run outside a container extracts the base image
+# OVER its own live filesystem, including bookworm-slim's resolv.conf (a
+# systemd stub), which then breaks kaniko's push-time DNS. A builder in that
+# position passes `--build-arg BUILD_NAMESERVERS=<ns>[,<ns>…]`; everyone else
+# leaves it unset and Docker supplies DNS at run time.
+#
+# BEST-EFFORT on purpose: kaniko's RUN steps execute in its own (writable)
+# rootfs, while a local BuildKit build bind-mounts /etc/resolv.conf read-only
+# and cannot replace it — and does not need to. Failing the build over that
+# difference would make this image unbuildable outside that builder.
+ARG BUILD_NAMESERVERS=
+RUN if [ -n "$BUILD_NAMESERVERS" ]; then \
+      for ns in $(echo "$BUILD_NAMESERVERS" | tr ',' ' '); do printf 'nameserver %s\n' "$ns"; done > /etc/resolv.conf || true; \
+    fi
+
+# Node runs the client. Copying the binary out of the build stage is what makes
+# this image self-contained (a deploy target has no Node — the image is
+# pull-only) and keeps the Node major pinned to the one the workspace is
+# installed and tested with.
+COPY --from=clientbuild /usr/local/bin/node /usr/local/bin/node
+
+# The client, and only the three trees it needs to run: the workspace links in
+# apps/tui/node_modules are RELATIVE and resolve into the root virtual store
+# (node_modules/.pnpm) and into packages/, so all three must land at the same
+# paths they were installed at.
+COPY --from=clientbuild /repo/node_modules /opt/cytale/node_modules
+COPY --from=clientbuild /repo/packages /opt/cytale/packages
+COPY --from=clientbuild /repo/apps/tui /opt/cytale/apps/tui
+
+# The host binary: this image's reason to exist.
+COPY --from=hostbuild /out/cytale-ssh-host /usr/local/bin/cytale-ssh-host
+
+# The host runs as an unprivileged, FIXED numeric uid: the entrypoint below is
+# root (the only uid that can read a 0600 key out of a read-only mount) and the
+# host process itself never is. Client processes the host spawns inherit this
+# uid, which is the stated isolation boundary (KTD9) — per-session OS
+# separation is out of scope, so the secrets are removed from the filesystem
+# instead (see the entrypoint) rather than hidden behind a second uid.
+RUN useradd --uid 10001 --user-group --create-home --home-dir /home/cytale-ssh \
+      --shell /usr/sbin/nologin cytale-ssh
+
+WORKDIR /home/cytale-ssh
+
+# The two entry points. Written here rather than shipped as separate files so
+# that this Dockerfile is the image's whole contract:
+#
+#   cytale-ssh-host-entrypoint  — materializes the operator's secrets, drops
+#                                 privileges, execs the host
+#   cytale-tui                  — the stable client path the host spawns
+#                                 (CYTALE_SSH_HOST_CLIENT_COMMAND)
+#
+# WHY THE ENTRYPOINT EXISTS AT ALL. The host reads its bridge credential and
+# its host private key ONCE and then UNLINKS them (R12a), and a failed unlink
+# is FATAL to its boot: `internal/auth.LoadHostKey` and
+# `internal/bridge.LoadCredential` both refuse to start rather than leave a
+# readable secret behind. Secret material is mounted read-only (that is the
+# point of mounting it), and a read-only mount cannot be unlinked. So the
+# operator's files are copied into a writable directory owned by the host's
+# uid, and the host unlinks THOSE. The operator's copy is never touched, which
+# is what makes R29a true: the host key is re-materialized from the same
+# persistent source on every boot, so a published fingerprint stays true
+# instead of every member's pinned known_hosts entry becoming a hard failure.
+RUN printf '%s\n' \
+      '#!/bin/sh' \
+      '# Materialize the operator secret material where the host can unlink it.' \
+      '# Dockerfile.ssh-host states why a read-only mount cannot work.' \
+      'set -eu' \
+      '' \
+      'SRC=/run/cytale-ssh' \
+      'LIVE=/run/cytale-secrets' \
+      'HOST_UID=10001' \
+      'HOST_GID=10001' \
+      '' \
+      'fail() {' \
+      '  echo "cytale-ssh-host: $*" >&2' \
+      '  echo "cytale-ssh-host: provisioning is documented in docs/self-hosting.md (section SSH host)" >&2' \
+      '  echo "cytale-ssh-host: nothing starts until that directory holds ca_key.pub, host_key and bridge_credential" >&2' \
+      '  exit 1' \
+      '}' \
+      '' \
+      '[ -d "$SRC" ] || fail "no secret directory mounted at $SRC"' \
+      'for f in ca_key.pub host_key bridge_credential; do' \
+      '  [ -s "$SRC/$f" ] || fail "missing or empty $SRC/$f"' \
+      'done' \
+      '' \
+      'mkdir -p "$LIVE"' \
+      'chmod 0700 "$LIVE"' \
+      'chown "$HOST_UID:$HOST_GID" "$LIVE"' \
+      '' \
+      'cp "$SRC/ca_key.pub" "$LIVE/ca_public_key"' \
+      'cp "$SRC/host_key" "$LIVE/host_key"' \
+      'cp "$SRC/bridge_credential" "$LIVE/bridge_credential"' \
+      'chown "$HOST_UID:$HOST_GID" "$LIVE/ca_public_key" "$LIVE/host_key" "$LIVE/bridge_credential"' \
+      'chmod 0600 "$LIVE/host_key" "$LIVE/bridge_credential"' \
+      'chmod 0644 "$LIVE/ca_public_key"' \
+      '' \
+      '# The host reads all three from here. The CA public key is not a secret and' \
+      '# stays on disk; the other two are unlinked before the listener opens.' \
+      ': "${CYTALE_SSH_HOST_CA_PUBLIC_KEY:=$LIVE/ca_public_key}"' \
+      ': "${CYTALE_SSH_HOST_KEY:=$LIVE/host_key}"' \
+      ': "${CYTALE_SSH_HOST_BRIDGE_CREDENTIAL:=$LIVE/bridge_credential}"' \
+      'export CYTALE_SSH_HOST_CA_PUBLIC_KEY CYTALE_SSH_HOST_KEY CYTALE_SSH_HOST_BRIDGE_CREDENTIAL' \
+      '' \
+      'echo "cytale-ssh-host: materialized the CA public key and the two secrets from $SRC into $LIVE"' \
+      '' \
+      'exec setpriv --reuid="$HOST_UID" --regid="$HOST_GID" --clear-groups /usr/local/bin/cytale-ssh-host' \
+    > /usr/local/bin/cytale-ssh-host-entrypoint \
+ && chmod 0755 /usr/local/bin/cytale-ssh-host-entrypoint \
+ && printf '%s\n' \
+      '#!/bin/sh' \
+      '# cytale-tui — the terminal client, exactly as the SSH host spawns it.' \
+      '# CYTALE_SSH_HOST_CLIENT_COMMAND must be an ABSOLUTE path that does not' \
+      '# move between image rebuilds, so every path below is absolute. In SSH' \
+      '# mode the client takes its origin from the host and ignores a' \
+      '# command-line URL by design (R14); "$@" is still passed through so the' \
+      '# launcher can also serve local mode.' \
+      'set -eu' \
+      'TUI=/opt/cytale/apps/tui' \
+      'exec /usr/local/bin/node "$TUI/node_modules/tsx/dist/cli.mjs" "$TUI/src/client.ts" "$@"' \
+    > /usr/local/bin/cytale-tui \
+ && chmod 0755 /usr/local/bin/cytale-tui
+
+# CI guard, in Dockerfile.runtime's idiom (it asserts its own NIF symlinks): the
+# two artifacts this image exists to carry must be present AND runnable at
+# build time, rather than discovering a broken image on a member's first
+# connection. tsx's path is pinned by the lockfile (tsx 4.23.13, bin
+# ./dist/cli.mjs), so a bump that moves it fails HERE, with the reason named.
+RUN set -e; \
+    test -x /usr/local/bin/cytale-ssh-host || { echo "MISSING the SSH host binary" >&2; exit 1; }; \
+    test -x /usr/local/bin/node || { echo "MISSING the Node runtime" >&2; exit 1; }; \
+    node --version; \
+    test -f /opt/cytale/apps/tui/src/client.ts || { echo "MISSING the terminal client entry point" >&2; exit 1; }; \
+    test -f /opt/cytale/apps/tui/node_modules/tsx/dist/cli.mjs || { echo "MISSING tsx, the client's runner" >&2; exit 1; }; \
+    ( /usr/local/bin/cytale-ssh-host 2>&1 || true ) | grep -q "missing required configuration" || { \
+      echo "the host binary did not name its missing configuration" >&2; exit 1; }; \
+    echo SSH_HOST_IMAGE_OK
+
+# The client's dependencies must RESOLVE in the tree as it landed — the workspace
+# links are relative and the virtual store is one directory up, so a builder that
+# flattened symlinks (or dropped the store) would produce an image whose client
+# dies on its first import. `test -f` above follows links and catches a dangling
+# tsx; this catches everything the client imports, by resolving it the way the
+# client will. Cheap, and it fails the BUILD rather than a member's connection.
+RUN node -e 'const mods = ["react", "ink", "@cytale/session", "@cytale/state", "@cytale/markdown", "@cytale/protocol", "@cytale/gateway-client", "@cytale/api-client", "@cytale/domain"]; for (const m of mods) { const p = require.resolve(m, { paths: ["/opt/cytale/apps/tui/src"] }); if (!p.startsWith("/opt/cytale/")) { throw new Error(m + " resolved outside the image: " + p); } console.log(m, "ok"); }' \
+ && echo CLIENT_DEPS_RESOLVE_OK
+
+# Image-level configuration: where the client lives. Everything else the host
+# needs is deployment configuration, set by compose.yaml — and the three secret
+# PATHS are set by the entrypoint, never values (an environment value stays
+# readable to a same-uid child through /proc, and read-once-and-unlink cannot
+# apply to a value).
+ENV CYTALE_SSH_HOST_CLIENT_COMMAND=/usr/local/bin/cytale-tui \
+    CYTALE_SSH_HOST_CLIENT_DIR=/opt/cytale/apps/tui
+
+# The published SSH port (compose.yaml maps it; the container side is fixed so
+# the mapping and this line cannot drift).
+EXPOSE 2222
+
+# One client process per connection, spawned and reaped by the host itself.
+# compose.yaml adds `init: true` for the same reason the app service carries it.
+ENTRYPOINT ["/usr/local/bin/cytale-ssh-host-entrypoint"]

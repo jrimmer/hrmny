@@ -1,0 +1,45 @@
+# eturnal (TURN) configuration — mounted read-only at /etc/eturnal.yml by
+# compose.yaml. Security Tier 2 #6: the relay PEER denylist is stated here
+# explicitly instead of being left to the image's implicit default.
+#
+# Everything else stays where it was: the secret, the relay port range and the
+# relay address still come from the ETURNAL_* environment variables in
+# compose.yaml — eturnal reads each variable only when the matching option is
+# ABSENT from this file (https://eturnal.net/documentation/#Environment_Variables),
+# so do NOT add `secret`, `relay_min_port`, `relay_max_port` or
+# `relay_ipv4_addr` here. `log_dir` and `modules` repeat the image's built-in
+# file (Dockerfile of the pinned eturnal 1.12.2), which this mount replaces;
+# `listen` is eturnal's documented default (3478 udp+tcp on all addresses),
+# written out so the published ports and this file visibly agree.
+eturnal:
+  listen:
+    - ip: "::"
+      port: 3478
+      transport: udp
+    - ip: "::"
+      port: 3478
+      transport: tcp
+
+  # TURN relaying TO any of these is refused: a TURN server that relays to
+  # private addresses is an SSRF into the host, the compose network (the app's
+  # internal listeners, ScyllaDB) and the LAN behind it. `recommended` is
+  # eturnal's own list (it is also eturnal 1.12's default — CVE-2020-26262
+  # guidance); the explicit entries repeat the ranges that matter here so the
+  # policy survives an upstream change of that list.
+  blacklist_peers:
+    - recommended
+    - "127.0.0.0/8" # loopback
+    - "10.0.0.0/8" # RFC 1918
+    - "172.16.0.0/12" # RFC 1918 — includes Docker's default compose networks
+    - "192.168.0.0/16" # RFC 1918 — includes Docker's other default pool
+    - "169.254.0.0/16" # link-local (cloud metadata endpoints)
+    - "100.64.0.0/10" # CGNAT / Tailscale
+    - "172.31.240.0/24" # the ssh-internal network (compose.yaml; inside 172.16/12 by default)
+    - "::1/128" # IPv6 loopback
+    - "fc00::/7" # IPv6 unique-local
+    - "fe80::/10" # IPv6 link-local
+  # No whitelist_peers: a whitelist entry would override every line above.
+
+  log_dir: stdout
+  modules:
+    mod_log_stun: {}

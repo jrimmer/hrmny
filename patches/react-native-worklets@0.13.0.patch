@@ -1,0 +1,18 @@
+diff --git a/Common/cpp/worklets/WorkletRuntime/WorkletRuntimeDecorator.cpp b/Common/cpp/worklets/WorkletRuntime/WorkletRuntimeDecorator.cpp
+index c501ce5bf8dde45c9048d7644d5a59029673fce0..6c8208b898a5e5f0d372dd9d021b9da9f55b2749 100644
+--- a/Common/cpp/worklets/WorkletRuntime/WorkletRuntimeDecorator.cpp
++++ b/Common/cpp/worklets/WorkletRuntime/WorkletRuntimeDecorator.cpp
+@@ -114,13 +114,6 @@ void WorkletRuntimeDecorator::decorate(
+   jsi_utils::installJsiFunction(rt, "_beginSection", [](jsi::Runtime &rt, const jsi::Value &nameValue) {
+ #ifdef ANDROID
+     ATrace_beginSection(nameValue.asString(rt).utf8(rt).c_str());
+-#elif defined(__APPLE__) && OS_LOG_TARGET_HAS_10_15_FEATURES
+-    os_log_t logHandle = getWorkletsInstrumentsLogHandle();
+-    if (os_signpost_enabled(logHandle)) {
+-      tls_signpostName = nameValue.asString(rt).utf8(rt);
+-      tls_signpostId = os_signpost_id_make_with_pointer(logHandle, &tls_signpostId);
+-      os_signpost_interval_begin(logHandle, tls_signpostId, "Worklets", "%s", tls_signpostName.c_str());
+-    }
+ #endif
+     return jsi::Value::undefined();
+   });

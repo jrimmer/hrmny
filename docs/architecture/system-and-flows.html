@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cytale — System Architecture &amp; Primary Flows</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23131416'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%235865f2'/%3E%3Ccircle cx='32' cy='14' r='4' fill='%2323a55a'/%3E%3Ccircle cx='48' cy='24' r='4' fill='%23f0b232'/%3E%3Ccircle cx='48' cy='42' r='4' fill='%2380848e'/%3E%3C/svg%3E">
+<!--
+  Cytale system architecture + primary flows — generated from the shipped tree
+  (2026-09-03). Sources: apps/server/lib/cytale/application.ex, gateway_socket.ex,
+  router.ex, messages.ex, workspaces/*; packages/protocol/src. Honesty notes inline:
+  a known post-restart live-delivery gap is marked where it lives.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Plannotator semantic tokens (theme-override) */
+    --background: oklch(0.97 0.005 260);
+    --foreground: oklch(0.18 0.02 260);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.18 0.02 260);
+    --muted: oklch(0.92 0.01 260);
+    --muted-foreground: oklch(0.40 0.02 260);
+    --primary: oklch(0.50 0.25 280);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.50 0.18 180);
+    --accent: oklch(0.60 0.22 50);
+    --destructive: oklch(0.50 0.25 25);
+    --success: oklch(0.45 0.20 150);
+    --warning: oklch(0.55 0.18 85);
+    --border: oklch(0.88 0.01 260);
+    --code-bg: oklch(0.92 0.01 260);
+    --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --font-display: ui-serif, Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: oklch(0.19 0.02 260);
+      --foreground: oklch(0.93 0.01 260);
+      --card: oklch(0.24 0.02 260);
+      --card-foreground: oklch(0.93 0.01 260);
+      --muted: oklch(0.29 0.02 260);
+      --muted-foreground: oklch(0.68 0.02 260);
+      --border: oklch(0.34 0.02 260);
+      --code-bg: oklch(0.28 0.02 260);
+    }
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { font-size: 16px; }
+  body {
+    background: var(--background);
+    background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+    background-size: 26px 26px;
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    padding: 48px 40px;
+    line-height: 1.6;
+  }
+  .page { max-width: 1060px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--secondary);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: 2.4rem;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    text-wrap: balance;
+    margin-bottom: 8px;
+  }
+  .brief { color: var(--muted-foreground); max-width: 68ch; margin-bottom: 36px; }
+
+  h2 {
+    font-family: var(--font-sans);
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 56px 0 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  h2 .no {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--accent);
+  }
+  .section-sub { color: var(--muted-foreground); font-size: 0.9rem; max-width: 68ch; margin-bottom: 18px; }
+  .section-sub code, .brief code, .fig-cap code, .otp-card p code {
+    font-family: var(--font-mono); font-size: 0.78em;
+    background: color-mix(in oklab, var(--primary) 12%, transparent);
+    color: var(--primary);
+    padding: 1px 5px; border-radius: 4px;
+  }
+
+  /* KPI strip */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 8px; }
+  .kpi {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .kpi b { display: block; font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kpi span { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-foreground); }
+
+  /* Diagram shells (template pattern, token-mapped) */
+  .diagram-shell { position: relative; margin-bottom: 12px; }
+  .diagram-shell__hint { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted-foreground); margin-bottom: 8px; opacity: 0.8; }
+  .mermaid-wrap {
+    position: relative; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 28px 20px; overflow: hidden;
+    display: flex; justify-content: center; align-items: center; min-height: 320px;
+    cursor: grab;
+  }
+  .mermaid-wrap.is-panning { cursor: grabbing; user-select: none; }
+  .zoom-controls {
+    position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; z-index: 10;
+    background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 2px;
+  }
+  .zoom-controls button {
+    width: 28px; height: 28px; border: none; background: transparent; color: var(--muted-foreground);
+    font-family: var(--font-mono); font-size: 14px; cursor: pointer; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .zoom-controls button:hover { background: var(--muted); color: var(--foreground); }
+  .mermaid-viewport { position: relative; overflow: hidden; width: 100%; height: 100%; min-height: 300px; }
+  .mermaid-canvas { position: absolute; top: 0; left: 0; }
+  .zoom-label { font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted-foreground); padding: 0 6px; white-space: nowrap; }
+  .mermaid .nodeLabel { font-family: var(--font-sans) !important; font-size: 15px !important; }
+  .mermaid .edgeLabel { font-family: var(--font-mono) !important; font-size: 12px !important; }
+  .mermaid .node rect, .mermaid .node circle, .mermaid .node polygon { stroke-width: 1.5px !important; }
+  .mermaid .edge-pattern-solid { stroke-width: 1.5px !important; }
+
+  .fig-cap {
+    font-size: 0.85rem; color: var(--muted-foreground); max-width: 72ch;
+    margin: 10px 0 0; padding-left: 14px; border-left: 2px solid var(--accent);
+  }
+  .fig-cap strong { color: var(--foreground); }
+
+  /* OTP component cards */
+  .otp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin: 18px 0 8px; }
+  .otp-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+  .otp-card h3 { font-family: var(--font-mono); font-size: 0.82rem; font-weight: 500; color: var(--primary); margin-bottom: 6px; word-break: break-all; }
+  .otp-card .kind { font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); display: block; margin-bottom: 6px; }
+  .otp-card p { font-size: 0.82rem; color: var(--muted-foreground); overflow-wrap: break-word; }
+
+  .callout {
+    background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--warning);
+    border-radius: 0 10px 10px 0; padding: 14px 18px; font-size: 0.85rem; color: var(--muted-foreground); margin: 20px 0;
+  }
+  .callout strong { color: var(--foreground); }
+  .callout code { font-family: var(--font-mono); font-size: 0.78em; background: var(--code-bg); color: var(--foreground); padding: 1px 5px; border-radius: 4px; }
+
+  footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted-foreground); }
+
+  @media (max-width: 768px) { body { padding: 16px; } h1 { font-size: 1.6rem; } .mermaid-wrap { padding: 14px 8px; } }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <p class="eyebrow">Cytale · System Architecture</p>
+  <h1>One BEAM, one wire, five shared packages</h1>
+  <p class="brief">
+    Cytale is a team-chat app in the Discord lineage: an Elixir/OTP server (Phoenix backend-only,
+    raw WebSock gateway &mdash; deliberately <em>not</em> Phoenix Channels), ScyllaDB for truth,
+    Tantivy (Rust NIF) for search, and a React SPA that consumes a shared TypeScript core
+    (<code>protocol</code> &middot; <code>api-client</code> &middot; <code>gateway-client</code> &middot;
+    <code>state</code> &middot; <code>domain</code>) intended to be reused verbatim by the future
+    React-Native and bot clients. REST is the write path; the gateway is the fan-out path.
+  </p>
+
+  <div class="kpis">
+    <div class="kpi"><b>9</b><span>OTP children</span></div>
+    <div class="kpi"><b>61</b><span>REST routes</span></div>
+    <div class="kpi"><b>13</b><span>gateway ops</span></div>
+    <div class="kpi"><b>24</b><span>dispatch events</span></div>
+    <div class="kpi"><b>5</b><span>shared TS pkgs</span></div>
+    <div class="kpi"><b>1</b><span>wire format (U29-checked)</span></div>
+  </div>
+
+  <h2><span class="no">01</span> Runtime topology</h2>
+  <p class="section-sub">
+    Every client speaks the same two planes: REST for writes and reads, a raw WebSocket for
+    real-time dispatches. A connection is one BEAM process (<code>GatewaySocket</code>, a WebSock
+    handler); a workspace is one GenServer under a DynamicSupervisor. No Phoenix Channels, no
+    PubSub &mdash; fan-out is per-PID through an ETS route table.
+  </p>
+
+  <section class="diagram-shell">
+    <p class="diagram-shell__hint">Ctrl/Cmd + wheel to zoom &middot; drag to pan &middot; double-click to fit</p>
+    <div class="mermaid-wrap">
+      <div class="zoom-controls">
+        <button type="button" data-action="zoom-in" title="Zoom in">+</button>
+        <button type="button" data-action="zoom-out" title="Zoom out">&minus;</button>
+        <button type="button" data-action="zoom-fit" title="Smart fit">&#8634;</button>
+        <button type="button" data-action="zoom-one" title="1:1 zoom">1:1</button>
+        <button type="button" data-action="zoom-expand" title="Open full size">&#x26F6;</button>
+        <span class="zoom-label">Loading...</span>
+      </div>
+      <div class="mermaid-viewport"><div class="mermaid mermaid-canvas"></div></div>
+    </div>
+    <script type="text/plain" class="diagram-source">
+flowchart TD
+  subgraph clients["CLIENTS"]
+    WEB["Web SPA (React)<br/>lazy authed shell · 78KB gz login path"]
+    FUT["RN app · bots · load harness<br/>(future — same TS core)"]
+  end
+  subgraph beam["CYTALE.APPLICATION (BEAM)"]
+    EP["CytaleWeb.Endpoint<br/>Bandit · :4000"]
+    subgraph perconn["one process per connection"]
+      GS["GatewaySocket<br/>(WebSock, not Channels)"]
+    end
+    subgraph dyn["DynamicSupervisor + Registry"]
+      WP["Workspace GenServer<br/>fan-out · search trigger · telemetry"]
+    end
+    PR["PushRegistry (ETS)<br/>route table: user / channel / workspace"]
+    SS["SessionStore (ETS)<br/>resume buffers · seq"]
+    PS["PresenceStatus (ETS)<br/>preferred status"]
+    AL["AdmissionLimiter<br/>30 identifies / 10s / IP"]
+    TS["Telemetry.Stats<br/>hop budgets p50/p99"]
+    REPO["Cytale.Repo<br/>Xandra cluster pool"]
+    IDX["Search IndexWriterSupervisor<br/>Tantivy NIF (Rust)"]
+  end
+  SC["ScyllaDB<br/>messages · workspaces · threads<br/>read_state · roles · overwrites"]
+  WEB -- "REST /api/v1/*" --> EP
+  FUT -- "REST + WS" --> EP
+  EP -- "GET /gateway/websocket" --> GS
+  EP -- "controllers" --> REPO
+  GS -- "buffer_dispatch (seq + resume)" --> SS
+  GS -- "subscribe routes on READY" --> PR
+  WP -- "fan_out per route key" --> PR
+  PR -- "send to socket pids" --> GS
+  WP -- "insert + author_messages" --> REPO
+  WP -- "index write (fire-and-forget)" --> IDX
+  REPO --> SC
+  GS -- "presence op 3" --> PS
+  GS -- "identify gate" --> AL
+  WP -- "latency histograms" --> TS
+    </script>
+  </section>
+  <p class="fig-cap"><strong>Claim:</strong> writes go REST &rarr; ScyllaDB, then ride the
+  <code>Publish</code> seam to the workspace process, which fans out through the ETS route table to
+  every live socket &mdash; each dispatch is seq-stamped and buffered before the wire write, so a
+  client that drops can <code>Resume</code> from the exact last sequence it processed.</p>
+
+  <div class="otp-grid">
+    <div class="otp-card"><span class="kind">Registry :unique</span><h3>Cytale.WorkspaceRegistry</h3><p>One workspace GenServer per workspace id, lazily started, crash-isolated (<code>one_for_one</code>). ScyllaDB is truth; the process is reconstructable cache + fan-out hub.</p></div>
+    <div class="otp-card"><span class="kind">DynamicSupervisor</span><h3>Cytale.WorkspaceSupervisor</h3><p>Owns the per-workspace processes. A crash drops live fan-out for that workspace only; clients reconnect/resume.</p></div>
+    <div class="otp-card"><span class="kind">ETS · GenServer</span><h3>Cytale.Gateway.SessionStore</h3><p>Session records: identity binding, per-session seq high-water mark, single-use resume tokens, and the resume buffer replayed on <code>Resume</code>.</p></div>
+    <div class="otp-card"><span class="kind">ETS · public</span><h3>Cytale.Gateway.PushRegistry</h3><p>The fan-out route table: <code>{:user,id}</code>, <code>{:channel,id}</code>, <code>{:workspace,id}</code> &rarr; live socket pids. For single-node launch this table <em>is</em> the presence set.</p></div>
+    <div class="otp-card"><span class="kind">ETS · GenServer</span><h3>Cytale.Gateway.PresenceStatus</h3><p>Preferred presence per user (online/idle/dnd/invisible). Consulted by join announces and newcomer snapshots; forgotten on last-socket close.</p></div>
+    <div class="otp-card"><span class="kind">ETS · GenServer</span><h3>Cytale.Gateway.AdmissionLimiter</h3><p>Sliding-window reconnect-storm damper: 30 identifies per 10s per IP &rarr; close 4008. Gateway test suites reset it per module.</p></div>
+    <div class="otp-card"><span class="kind">Telemetry sink</span><h3>Cytale.Telemetry.Stats</h3><p>Ring-buffered p50/p99 for the plan's hop budgets (insert &le;50ms, fan-out &le;5ms), exposed at <code>GET /api/v1/admin/metrics</code> and asserted by the soak.</p></div>
+    <div class="otp-card"><span class="kind">Xandra cluster</span><h3>Cytale.Repo</h3><p>The single ScyllaDB seam: pool per node, token-aware routing, <code>local_quorum</code>. Schema applies idempotently at boot with a bounded connect grace.</p></div>
+    <div class="otp-card"><span class="kind">DynamicSupervisor + NIF</span><h3>Search.IndexWriterSupervisor</h3><p>Per-workspace Tantivy (Rust NIF) index writers, triggered after <code>MessageCreate</code> fan-out. Fire-and-forget: an index failure degrades search, never chat.</p></div>
+  </div>
+
+  <h2><span class="no">02</span> Login &amp; session restore</h2>
+  <p class="section-sub">
+    Two token classes with different homes: the access JWT (15 min, in memory + mirrored to
+    localStorage as <em>last-seen</em> because the refresh contract needs its <code>sub</code>) and
+    the rotating refresh token (30 days, localStorage). Gateway Identify presents a live JWT &mdash;
+    the token provider rotates it before identifying if expired.
+  </p>
+
+  <section class="diagram-shell">
+    <p class="diagram-shell__hint">Ctrl/Cmd + wheel to zoom &middot; drag to pan</p>
+    <div class="mermaid-wrap">
+      <div class="zoom-controls">
+        <button type="button" data-action="zoom-in">+</button>
+        <button type="button" data-action="zoom-out">&minus;</button>
+        <button type="button" data-action="zoom-fit">&#8634;</button>
+        <button type="button" data-action="zoom-one">1:1</button>
+        <button type="button" data-action="zoom-expand">&#x26F6;</button>
+        <span class="zoom-label">Loading...</span>
+      </div>
+      <div class="mermaid-viewport"><div class="mermaid mermaid-canvas"></div></div>
+    </div>
+    <script type="text/plain" class="diagram-source">
+sequenceDiagram
+  participant B as Browser
+  participant R as REST /api/v1
+  participant G as Gateway (WS)
+  B->>R: POST /auth/register {username,email,password}
+  R-->>B: 201 tokens (view-only until verified)
+  Note over B,R: dev mailer drops the verify token in tmp/dev_mailbox.jsonl
+  B->>R: POST /auth/verify-email {token}
+  B->>R: POST /auth/login (fresh verified claims)
+  R-->>B: access JWT (15m) + refresh (30d, rotating)
+  B->>G: WS connect → Hello(op10, heartbeat 30s)
+  B->>G: Identify(op2, token, v=1, compress)
+  G-->>B: READY dispatch (session_id, resume_token, user)
+  Note over B: page reload → restore()
+  B->>R: POST /auth/refresh (Bearer: last-seen access JWT for sub)
+  R-->>B: rotated pair → re-Identify (sessionEpoch++)
+    </script>
+  </section>
+  <p class="fig-cap"><strong>Claim:</strong> a reload never forces a re-login &mdash; the refresh
+  exchange identifies the user by the expired-OK access JWT's <code>sub</code> claim, and the
+  client re-asserts its presence preference on every fresh gateway session.</p>
+
+  <h2><span class="no">03</span> Message posting &amp; fan-out</h2>
+  <p class="section-sub">
+    Optimistic send on the client; idempotent insert on the server; at-least-once delivery on the
+    wire with per-session sequencing. The same path serves thread replies with a second,
+    thread-scoped dispatch.
+  </p>
+
+  <section class="diagram-shell">
+    <p class="diagram-shell__hint">Ctrl/Cmd + wheel to zoom &middot; drag to pan</p>
+    <div class="mermaid-wrap">
+      <div class="zoom-controls">
+        <button type="button" data-action="zoom-in">+</button>
+        <button type="button" data-action="zoom-out">&minus;</button>
+        <button type="button" data-action="zoom-fit">&#8634;</button>
+        <button type="button" data-action="zoom-one">1:1</button>
+        <button type="button" data-action="zoom-expand">&#x26F6;</button>
+        <span class="zoom-label">Loading...</span>
+      </div>
+      <div class="mermaid-viewport"><div class="mermaid mermaid-canvas"></div></div>
+    </div>
+    <script type="text/plain" class="diagram-source">
+flowchart TD
+  C["Composer (Lexical)<br/>Enter=send · per-channel drafts"] --> OS["Optimistic placeholder<br/>pendingByNonce (store)"]
+  OS -- "POST /channels/:id/messages<br/>Idempotency-Key = nonce" --> MC["MessageController<br/>verified · permitted · idempotent"]
+  MC --> MSG["Messages.create_message<br/>INSERT messages + author_messages<br/>telemetry: insert_duration"]
+  MSG -- "Publish seam" --> WP["Workspace GenServer<br/>fan_out(channel route)"]
+  WP -- "fire-and-forget" --> IDX["Tantivy index write"]
+  WP --> PR["PushRegistry {:channel,id}"]
+  PR -- "send per live pid" --> S1["Socket A: buffer seq → wire"]
+  PR -- "send per live pid" --> S2["Socket B: buffer seq → wire"]
+  S2 -- "MessageCreate (op0, s=n)" --> RC["gateway-client<br/>seq guard · inflate if compressed"]
+  RC -- "applyGatewayEvent" --> ST["state store<br/>upsert by id · accrue unread"]
+  ST -- "confirmOptimisticSend(nonce)" --> OS
+    </script>
+  </section>
+  <p class="fig-cap"><strong>Claim:</strong> the REST response confirms the optimistic row (nonce
+  replaced by the server snowflake), while every <em>other</em> subscriber receives the same message
+  as a seq-stamped dispatch &mdash; buffered before the wire write, so a subscriber that drops
+  mid-flight resumes from the exact sequence it processed. Edits and deletes ride the same seam
+  (<code>MessageUpdate</code>, <code>MessageDelete</code> with <code>thread_id</code>).</p>
+
+  <h2><span class="no">04</span> Presence management</h2>
+  <p class="section-sub">
+    Presence is derived, not stored: the route table answers &ldquo;connected&rdquo;, the
+    preferred-status table answers &ldquo;broadcasting what&rdquo;. Invisible is display-honest
+    &mdash; the wire says offline to everyone while routing stays fully live.
+  </p>
+
+  <section class="diagram-shell">
+    <p class="diagram-shell__hint">Ctrl/Cmd + wheel to zoom &middot; drag to pan</p>
+    <div class="mermaid-wrap">
+      <div class="zoom-controls">
+        <button type="button" data-action="zoom-in">+</button>
+        <button type="button" data-action="zoom-out">&minus;</button>
+        <button type="button" data-action="zoom-fit">&#8634;</button>
+        <button type="button" data-action="zoom-one">1:1</button>
+        <button type="button" data-action="zoom-expand">&#x26F6;</button>
+        <span class="zoom-label">Loading...</span>
+      </div>
+      <div class="mermaid-viewport"><div class="mermaid mermaid-canvas"></div></div>
+    </div>
+    <script type="text/plain" class="diagram-source">
+flowchart TD
+  subgraph join["On Identify/Resume — join_fanout_routes"]
+    SUB["subscribe: every channel key<br/>+ one workspace key per membership"] --> SNAP["presence snapshot → newcomer<br/>(live users, preferred status)"]
+    SNAP --> ANN["self announce → workspace<br/>wire_status(pref) — invisible ⇒ offline"]
+  end
+  PICK["Status picker (user panel)<br/>online / idle / dnd / invisible"] -- "op 3 PresenceUpdate" --> PS["PresenceStatus ETS<br/>(persisted pref, forgotten on last close)"]
+  PS -- "announce mapped status" --> ALL["workspace subscribers"]
+  CLOSE["last live socket closes"] --> OFF["PresenceUpdate offline → workspace<br/>+ forget preference"]
+  NEWS["Newcomer joins later"] --> SNAP
+    </script>
+  </section>
+  <p class="fig-cap"><strong>Claim:</strong> order-independence &mdash; whoever connects, every
+  roster converges: the newcomer gets a backfill snapshot of who was already live, and existing
+  members get the announce. Client-declared <code>offline</code> is rejected; offline is
+  server-derived on last-socket close only.</p>
+
+  <h2><span class="no">05</span> Reconnect, resume &amp; convergence</h2>
+  <p class="section-sub">
+    At-least-once via replay: the server buffers every dispatch per session for the resume window;
+  the client guards duplicates by sequence. When the session is gone (server restart), a fresh
+  Identify resets the epoch and the client re-hydrates REST state to converge what it missed.
+  </p>
+
+  <section class="diagram-shell">
+    <p class="diagram-shell__hint">Ctrl/Cmd + wheel to zoom &middot; drag to pan</p>
+    <div class="mermaid-wrap">
+      <div class="zoom-controls">
+        <button type="button" data-action="zoom-in">+</button>
+        <button type="button" data-action="zoom-out">&minus;</button>
+        <button type="button" data-action="zoom-fit">&#8634;</button>
+        <button type="button" data-action="zoom-one">1:1</button>
+        <button type="button" data-action="zoom-expand">&#x26F6;</button>
+        <span class="zoom-label">Loading...</span>
+      </div>
+      <div class="mermaid-viewport"><div class="mermaid mermaid-canvas"></div></div>
+    </div>
+    <script type="text/plain" class="diagram-source">
+flowchart TD
+  DROP["link drops (kill · network)"] --> BACK["reconnect w/ exponential backoff<br/>tokenProvider rotates JWT first"]
+  BACK --> RES{"Resume(op5)<br/>session_id + seq + resume_token"}
+  RES -- "session alive" --> REPLAY["Resumed + buffered_after(seq)<br/>replay: zero loss, dup-guarded"]
+  RES -- "gone → InvalidSession(9,false)" --> FRESH["fresh connection → Identify<br/>(never identify on the dying socket)"]
+  FRESH --> READY2["READY → sessionEpoch++"]
+  READY2 --> HY["re-hydrate REST rosters<br/>threads · members · channels"]
+  READY2 --> PANES["panes remount (epoch key)<br/>refetch channel tail"]
+    </script>
+  </section>
+  <p class="fig-cap"><strong>Claim:</strong> two convergence mechanisms, one contract &mdash;
+  <code>Resume</code> replays exactly the gap; a dead session re-Identifies and the epoch bump
+  drives REST re-hydration so a reload is never required. The soak enforces the zero-loss half;
+  <strong>a known open issue</strong> is an intermittent post-restart live-delivery gap (1&ndash;17
+  missed by one client, decode clean, persistence intact) found by exactly that enforcement.</p>
+
+  <h2><span class="no">06</span> Read acknowledgement &amp; unread</h2>
+
+  <section class="diagram-shell">
+    <p class="diagram-shell__hint">Ctrl/Cmd + wheel to zoom &middot; drag to pan</p>
+    <div class="mermaid-wrap">
+      <div class="zoom-controls">
+        <button type="button" data-action="zoom-in">+</button>
+        <button type="button" data-action="zoom-out">&minus;</button>
+        <button type="button" data-action="zoom-fit">&#8634;</button>
+        <button type="button" data-action="zoom-one">1:1</button>
+        <button type="button" data-action="zoom-expand">&#x26F6;</button>
+        <span class="zoom-label">Loading...</span>
+      </div>
+      <div class="mermaid-viewport"><div class="mermaid mermaid-canvas"></div></div>
+    </div>
+    <script type="text/plain" class="diagram-source">
+flowchart LR
+  PANE["open pane = read view<br/>ack on open + on newest change"] -- "op 21 MessageAck<br/>(REST /ack fallback)" --> SRV["read_state upsert<br/>high-water last_read_id"]
+  SRV -- "fan MessageAck → user sockets" --> D2["other devices: badges clear"]
+  SRV -- "MessageCreate accrues<br/>unread + mentions" --> ST2["store slices"]
+  ST2 --> BADGE["sidebar badges<br/>muted / accent(followed)"]
+    </script>
+  </section>
+  <p class="fig-cap"><strong>Claim:</strong> unread accrues on live dispatch (mentions tracked
+  separately) and clears through the ack round-trip, so read state converges across devices; thread
+  acks ride the same table under the thread's id.</p>
+
+  <h2><span class="no">07</span> Thread lifecycle</h2>
+
+  <section class="diagram-shell">
+    <p class="diagram-shell__hint">Ctrl/Cmd + wheel to zoom &middot; drag to pan</p>
+    <div class="mermaid-wrap">
+      <div class="zoom-controls">
+        <button type="button" data-action="zoom-in">+</button>
+        <button type="button" data-action="zoom-out">&minus;</button>
+        <button type="button" data-action="zoom-fit">&#8634;</button>
+        <button type="button" data-action="zoom-one">1:1</button>
+        <button type="button" data-action="zoom-expand">&#x26F6;</button>
+        <span class="zoom-label">Loading...</span>
+      </div>
+      <div class="mermaid-viewport"><div class="mermaid mermaid-canvas"></div></div>
+    </div>
+    <script type="text/plain" class="diagram-source">
+flowchart TD
+  START["POST .../messages/:mid/threads"] --> ROW["threads row + ThreadCreate publish<br/>(workspace route — new channel has no subscribers)"]
+  ROW --> NAV["sidebar nav row appears live<br/>+ roster hydrates on reload (GET /channels/:id/threads)"]
+  REPLY["POST /threads/:id/messages"] --> DUP["double dispatch:<br/>ThreadMessageCreate (thread route)<br/>+ MessageCreate (channel route)"]
+  OPEN["row click → docked side panel<br/>parent pinned · compact message list"]
+    </script>
+  </section>
+  <p class="fig-cap"><strong>Claim:</strong> the side panel is the same message surface rendered
+  narrower &mdash; same composer, same dividers, same unread tiers &mdash; not a special-cased
+  sheet. Archive/rename events exist in the protocol but are admin-epic scope (unemitted; tracked
+  by the seam sweep).</p>
+
+  <div class="callout">
+    <strong>Standing gates behind these diagrams.</strong> <code>pnpm smoke</code> (two-user wire
+    composition, live compression), <code>pnpm soak</code> (SIGKILL restart &mdash; zero loss, no
+    live miss, hop budgets), <code>pnpm seam:check</code> (routed-but-dead endpoints, wire drift),
+    <code>pnpm protocol:check</code> (docs vs the shipped contract). The soak's current open find
+    is the post-restart live-delivery gap above; everything else here is green as of this build.
+  </div>
+
+  <footer>Generated 2026-09-03 from the shipped tree · commit-chain through d769177 ·
+  sources: application.ex · gateway_socket.ex · router.ex · messages.ex · workspaces/* · packages/protocol</footer>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  import elkLayouts from 'https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.min.mjs';
+
+  const config = {
+    fitPadding: 28,
+    minHeight: 360,
+    maxHeightPx: 960,
+    maxHeightVh: 0.84,
+    maxInitialZoom: 1.8,
+    minZoom: 0.08,
+    maxZoom: 6.5,
+    zoomStep: 0.14,
+    readabilityFloor: 0.58
+  };
+
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+  let activeDrag = null;
+
+  addEventListener('mousemove', (e) => activeDrag?.onMove(e));
+  addEventListener('mouseup', () => {
+    activeDrag?.onEnd();
+    activeDrag = null;
+  });
+
+  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+
+  mermaid.registerLayoutLoaders(elkLayouts);
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    look: 'classic',
+    layout: 'elk',
+    themeVariables: {
+      fontFamily: "'Bricolage Grotesque', system-ui, sans-serif",
+      fontSize: '16px',
+      primaryColor: isDark ? '#115e59' : '#ccfbf1',
+      primaryBorderColor: isDark ? '#2dd4bf' : '#0d9488',
+      primaryTextColor: isDark ? '#ccfbf1' : '#134e4a',
+      secondaryColor: isDark ? '#0c4a6e' : '#e0f2fe',
+      secondaryBorderColor: isDark ? '#38bdf8' : '#0369a1',
+      secondaryTextColor: isDark ? '#ccfbf1' : '#134e4a',
+      tertiaryColor: isDark ? '#2e2618' : '#fffbeb',
+      tertiaryBorderColor: isDark ? '#fbbf24' : '#d97706',
+      tertiaryTextColor: isDark ? '#ccfbf1' : '#134e4a',
+      lineColor: isDark ? '#5eead4' : '#5f8a85',
+      noteBkgColor: isDark ? '#115e59' : '#fefce8',
+      noteTextColor: isDark ? '#ccfbf1' : '#134e4a',
+      noteBorderColor: isDark ? '#fbbf24' : '#d97706',
+    }
+  });
+
+  const rerenderers = [];
+
+  function initDiagram(shell) {
+    const wrap = shell.querySelector('.mermaid-wrap');
+    const viewport = shell.querySelector('.mermaid-viewport');
+    const canvas = shell.querySelector('.mermaid-canvas');
+    const source = shell.querySelector('.diagram-source');
+    const label = shell.querySelector('.zoom-label');
+
+    if (!wrap || !viewport || !canvas || !source || !label) {
+      console.error('initDiagram: missing required elements in', shell);
+      return;
+    }
+
+    let zoom = 1;
+    let fitMode = 'contain';
+    let panX = 0;
+    let panY = 0;
+    let svgW = 0;
+    let svgH = 0;
+
+    let sx = 0;
+    let sy = 0;
+    let spx = 0;
+    let spy = 0;
+
+    let touchDist = 0;
+    let touchCx = 0;
+    let touchCy = 0;
+
+    function constrainPan() {
+      const vpW = viewport.clientWidth;
+      const vpH = viewport.clientHeight;
+      const rW = svgW * zoom;
+      const rH = svgH * zoom;
+      const pad = config.fitPadding;
+
+      panX = (rW + pad * 2 <= vpW)
+        ? (vpW - rW) / 2
+        : clamp(panX, vpW - rW - pad, pad);
+      panY = (rH + pad * 2 <= vpH)
+        ? (vpH - rH) / 2
+        : clamp(panY, vpH - rH - pad, pad);
+    }
+
+    function applyTransform() {
+      const svg = canvas.querySelector('svg');
+      if (!svg || !svgW) return;
+
+      constrainPan();
+      svg.style.width = (svgW * zoom) + 'px';
+      svg.style.height = (svgH * zoom) + 'px';
+      canvas.style.transform = `translate(${panX}px, ${panY}px)`;
+      label.textContent = Math.round(zoom * 100) + '% \u2014 ' + fitMode;
+    }
+
+    function canPan() {
+      const rW = svgW * zoom;
+      const rH = svgH * zoom;
+      return rW + config.fitPadding * 2 > viewport.clientWidth
+          || rH + config.fitPadding * 2 > viewport.clientHeight;
+    }
+
+    function computeSmartFit() {
+      const vpW = viewport.clientWidth;
+      const vpH = viewport.clientHeight;
+      const aW = Math.max(80, vpW - config.fitPadding * 2);
+      const aH = Math.max(80, vpH - config.fitPadding * 2);
+      const contain = Math.min(aW / svgW, aH / svgH);
+
+      let z = contain;
+      let mode = 'contain';
+      if (contain < config.readabilityFloor) {
+        const chartR = svgH / svgW;
+        const vpR = vpH / Math.max(vpW, 1);
+        if (chartR >= vpR) {
+          z = aW / svgW;
+          mode = 'width-priority';
+        } else {
+          z = aH / svgH;
+          mode = 'height-priority';
+        }
+      }
+      return { zoom: clamp(z, config.minZoom, config.maxInitialZoom), mode };
+    }
+
+    function fitDiagram() {
+      if (!svgW) return;
+      const fit = computeSmartFit();
+      zoom = fit.zoom;
+      fitMode = fit.mode;
+      panX = (viewport.clientWidth - svgW * zoom) / 2;
+      panY = (viewport.clientHeight - svgH * zoom) / 2;
+      applyTransform();
+    }
+
+    function setOneToOne() {
+      zoom = clamp(1, config.minZoom, config.maxZoom);
+      fitMode = '1:1';
+      panX = (viewport.clientWidth - svgW * zoom) / 2;
+      panY = (viewport.clientHeight - svgH * zoom) / 2;
+      applyTransform();
+    }
+
+    function zoomAround(factor, cx, cy) {
+      const next = clamp(zoom * factor, config.minZoom, config.maxZoom);
+      const ratio = next / zoom;
+      panX = cx - ratio * (cx - panX);
+      panY = cy - ratio * (cy - panY);
+      zoom = next;
+      fitMode = 'custom';
+      applyTransform();
+    }
+
+    function readSvgNaturalSize(svg) {
+      let w = 0;
+      let h = 0;
+      if (svg.viewBox?.baseVal?.width > 0) {
+        w = svg.viewBox.baseVal.width;
+        h = svg.viewBox.baseVal.height;
+      }
+      if (!w) {
+        w = parseFloat(svg.getAttribute('width')) || 0;
+        h = parseFloat(svg.getAttribute('height')) || 0;
+      }
+      if (!w) {
+        const b = svg.getBBox();
+        w = b.width;
+        h = b.height;
+      }
+      if (!w) {
+        const r = svg.getBoundingClientRect();
+        w = r.width || 1000;
+        h = r.height || 700;
+      }
+      if (!svg.getAttribute('viewBox')) {
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+      }
+      return { w, h };
+    }
+
+    function setAdaptiveHeight() {
+      if (!svgW) return;
+      const usableW = Math.max(280, wrap.getBoundingClientRect().width - 2);
+      const idealH = (svgH / svgW) * usableW + config.fitPadding * 2;
+      const maxVp = Math.floor(innerHeight * config.maxHeightVh);
+      const hardMax = Math.min(config.maxHeightPx, Math.max(config.minHeight + 40, maxVp));
+      wrap.style.height = Math.round(clamp(idealH, config.minHeight, hardMax)) + 'px';
+    }
+
+    function openInNewTab() {
+      const svg = canvas.querySelector('svg');
+      if (!svg) return;
+
+      const clone = svg.cloneNode(true);
+      clone.style.width = '';
+      clone.style.height = '';
+
+      // Mermaid derives clusterBkg and tertiaryColor from --bg, so the export
+      // has to read it live to sit on the same ground as the diagram.
+      const bg = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg').trim() || (isDark ? '#042f2e' : '#f0fdfa');
+
+      const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Diagram</title><style>
+      body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+      background:${bg};padding:40px;box-sizing:border-box}
+      svg{max-width:100%;max-height:90vh;height:auto}
+      </style></head><body>${clone.outerHTML}</body></html>`;
+
+      open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank');
+    }
+
+    async function render() {
+      try {
+        const code = source.textContent.trim();
+        if (!code) {
+          label.textContent = 'Error: Empty source';
+          return;
+        }
+
+        const id = 'diagram-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        const { svg } = await mermaid.render(id, code);
+        const parsed = new DOMParser().parseFromString(svg, 'text/html');
+        const parsedSvg = parsed.body.querySelector('svg');
+        if (!parsedSvg) {
+          label.textContent = 'Error: No SVG';
+          return;
+        }
+        canvas.replaceChildren(document.adoptNode(parsedSvg));
+
+        const svgNode = canvas.querySelector('svg');
+        if (!svgNode) {
+          label.textContent = 'Error: No SVG';
+          return;
+        }
+
+        const size = readSvgNaturalSize(svgNode);
+        svgW = size.w;
+        svgH = size.h;
+
+        svgNode.removeAttribute('width');
+        svgNode.removeAttribute('height');
+        svgNode.style.maxWidth = 'none';
+        svgNode.style.display = 'block';
+
+        setAdaptiveHeight();
+        fitDiagram();
+      } catch (err) {
+        console.error('Mermaid render failed:', err);
+        label.textContent = 'Error: ' + (err.message || 'Render failed');
+      }
+    }
+
+    const actions = {
+      'zoom-in': () => zoomAround(1 + config.zoomStep, viewport.clientWidth / 2, viewport.clientHeight / 2),
+      'zoom-out': () => zoomAround(1 / (1 + config.zoomStep), viewport.clientWidth / 2, viewport.clientHeight / 2),
+      'zoom-fit': fitDiagram,
+      'zoom-one': setOneToOne,
+      'zoom-expand': openInNewTab
+    };
+
+    Object.entries(actions).forEach(([action, handler]) => {
+      wrap.querySelector(`[data-action="${action}"]`)?.addEventListener('click', handler);
+    });
+
+    viewport.addEventListener('dblclick', fitDiagram);
+
+    viewport.addEventListener('wheel', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const rect = viewport.getBoundingClientRect();
+        const factor = e.deltaY < 0 ? 1 + config.zoomStep : 1 / (1 + config.zoomStep);
+        zoomAround(factor, e.clientX - rect.left, e.clientY - rect.top);
+        return;
+      }
+      if (canPan()) {
+        e.preventDefault();
+        panX -= e.deltaX;
+        panY -= e.deltaY;
+        applyTransform();
+      }
+    }, { passive: false });
+
+    viewport.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.zoom-controls') || !canPan()) return;
+      wrap.classList.add('is-panning');
+      sx = e.clientX;
+      sy = e.clientY;
+      spx = panX;
+      spy = panY;
+      e.preventDefault();
+
+      activeDrag = {
+        onMove: (ev) => {
+          panX = spx + (ev.clientX - sx);
+          panY = spy + (ev.clientY - sy);
+          applyTransform();
+        },
+        onEnd: () => {
+          wrap.classList.remove('is-panning');
+        }
+      };
+    });
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        sx = e.touches[0].clientX;
+        sy = e.touches[0].clientY;
+        spx = panX;
+        spy = panY;
+      } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchDist = Math.sqrt(dx * dx + dy * dy);
+        const r = viewport.getBoundingClientRect();
+        touchCx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+        touchCy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+      }
+    }, { passive: true });
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && canPan()) {
+        if (touchDist > 0) {
+          sx = e.touches[0].clientX;
+          sy = e.touches[0].clientY;
+          spx = panX;
+          spy = panY;
+          touchDist = 0;
+        }
+        e.preventDefault();
+        panX = spx + (e.touches[0].clientX - sx);
+        panY = spy + (e.touches[0].clientY - sy);
+        applyTransform();
+      } else if (e.touches.length === 2 && touchDist > 0) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        zoomAround(d / touchDist, touchCx, touchCy);
+        touchDist = d;
+      }
+    }, { passive: false });
+
+    new ResizeObserver(() => {
+      if (svgW) {
+        setAdaptiveHeight();
+        fitDiagram();
+      }
+    }).observe(wrap);
+
+    rerenderers.push(render);
+    render();
+  }
+
+  document.querySelectorAll('.diagram-shell').forEach(initDiagram);
+
+  // Mermaid bakes colors into the SVG at render time, so a page that swaps the
+  // palette at runtime must re-render every diagram to follow it.
+  window.rerenderDiagrams = () => Promise.all(rerenderers.map((render) => render()));
+</script>
+
+</body>
+</html>
+
+</body>
+</html>

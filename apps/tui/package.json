@@ -1,0 +1,33 @@
+{
+  "name": "@cytale/tui",
+  "license": "BSD-3-Clause",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Hrmny terminal client (Ink) — SSH mode and local mode",
+  "scripts": {
+    "start": "tsx src/client.ts",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cytale/api-client": "workspace:*",
+    "@cytale/domain": "workspace:*",
+    "@cytale/gateway-client": "workspace:*",
+    "@cytale/markdown": "workspace:*",
+    "@cytale/protocol": "workspace:*",
+    "@cytale/session": "workspace:*",
+    "@cytale/state": "workspace:*",
+    "ink": "^7.1.1",
+    "react": "^19.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "@types/react": "^19.2.2",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

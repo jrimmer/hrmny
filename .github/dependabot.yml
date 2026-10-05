@@ -1,0 +1,38 @@
+# Weekly, grouped, and capped: one PR per ecosystem per week at most, so
+# updates arrive as reviewable batches rather than a stream.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: mix
+    directory: /apps/server
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      hex-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: gomod
+    directory: /apps/ssh-host
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 3
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: /apps/desktop/src-tauri
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 3
+    groups:
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: monthly }

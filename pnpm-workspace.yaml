@@ -1,0 +1,38 @@
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@expo/cli@57.0.23'
+  - '@expo/metro-file-map@57.0.3'
+  - babel-preset-expo@57.0.11
+  - expo-modules-core@57.0.17
+  - expo-modules-jsi@57.1.0
+  - expo@57.0.21
+  - '@expo/ui@57.0.17'
+  - expo-glass-effect@57.0.2
+  - expo-router@57.0.20
+  # The mobile round-4 adds (freshly published; the lockfile-wide policy gate
+  # in the Docker web build refused them until aged):
+  - '@expo/vector-icons@15.1.1'
+  - expo-file-system@57.0.7
+  - expo-image-manipulator@57.0.19
+  - react-native-reanimated@4.7.0
+  - react-native-worklets@0.13.0
+onlyBuiltDependencies:
+  - esbuild
+packages:
+  - apps/web
+  - apps/desktop
+  - apps/server
+  - apps/mobile
+  - apps/tui
+  - packages/*
+  - tools/*
+
+overrides:
+  react-native-worklets: 0.13.0
+  # #125: CVE-2026-45822 (DoS) — rides the RUNTIME chain (query-string ->
+  # expo-router); 0.5.0 is the fixed, API-compatible release.
+  decode-uri-component: 0.5.0
+
+patchedDependencies:
+  react-native-worklets@0.13.0: patches/react-native-worklets@0.13.0.patch

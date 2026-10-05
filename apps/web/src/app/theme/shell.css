@@ -1,0 +1,5505 @@
+/*
+ * @cytale/web — shell layout stylesheet (UI polish slice 1).
+ *
+ * The component classes here were referenced by AppShell and the feature
+ * units since U18 but never defined: .shell / .rail / .sidebar / .pane /
+ * .members-rail / .drawer, plus the inner structural classes the feature
+ * components render (.channel-row, .category, .workspace-rail-item,
+ * .typing-*, .profile-*, .people-*, .presence-indicator, ...). Everything
+ * resolves EXCLUSIVELY through the semantic token layer exposed by
+ * tokens.css (@theme bridge + :root[data-theme] values) — no raw hex except
+ * the single corpus-measured thread border, tokenized below.
+ *
+ * Geometry references (corpus §2/§3b, measured Discord within ±10%):
+ *   rail 72px · sidebar 280px · pane fluid · members 360px @ ≥1280px
+ *   workspace buttons ~44px in 56–60px cadence · rows ~44px ·
+ *   compact continuation 24–27px · 40×40 minimum hit areas.
+ *
+ * Escalation rule (corpus §4, amended 2026-09-22): rail+sidebar BOTH on
+ * `background-deep` (owner direction — the whole left cluster is one black
+ * column stack; the old rail-under-sidebar tone step is gone), message pane
+ * on `surface-emphasized`, drawers on `surface-strong`; selection pills
+ * `surface-selected`; hover `surface-hover`. Child surfaces step AT MOST one
+ * level; color stays reserved for meaning (unread, mentions, presence).
+ *
+ * prefers-reduced-motion: durations are var(--duration-*) so tokens.css's
+ * existing reduced-motion override collapses them to instant here too.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Shell custom properties (AppShell.tsx references --shell-* conventions).
+ * ------------------------------------------------------------------ */
+
+:root {
+  /* Region widths (corpus-measured Discord geometry). */
+  --shell-rail: 72px;
+  --shell-sidebar: 280px;
+  --shell-members: 360px;
+
+  /*
+   * The composer's first-line band — one line of the editor at the shipped
+   * text settings (11px padding + 22px line-height + 11px). The composer's
+   * controls are pinned to it, so a message that grows past one line leaves
+   * them where they were instead of dragging them to the middle of the box
+   * (user direction 2026-09-12).
+   */
+  --shell-composer-line: 44px;
+
+  /*
+   * The bottom row's control height: the message composer's well and the
+   * identity panel above it are the SAME box height (user direction
+   * 2026-09-12 — measured 52px against 58px, the panel the smaller one, and
+   * the panel is the one that grows). One token so the pair cannot drift:
+   * the first-line band + 12px row padding + 2px border.
+   */
+  --shell-composer-height: calc(var(--shell-composer-line) + 14px);
+
+  /* Motion. --duration-pane/--duration-control already exist via @theme. */
+  --shell-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /*
+   * PRESS FEEDBACK (UI consistency pass 2026-09-15): plate-bearing controls
+   * — buttons, reaction chips, composer icon buttons, header gears, tab
+   * toggles — take `scale 150ms ease-out` in their transition list and
+   * `:active { scale: 0.96 }`. Never below 0.96 (it reads as exaggerated), and
+   * it is a transform, so no layout moves. STATIC BY DESIGN (no scale): rows
+   * (channel/people/settings — full-width, scaling would thrash), rail
+   * squircles (the radius morph is their feedback), and menu items (the hover
+   * plate is theirs). [data-reduce-motion] collapses the transition; the
+   * pressed state still applies, which is state, not motion.
+   */
+
+  /*
+   * Col-3 wash: gray into black, left to right, reaching full black at 80%
+   * of the column and holding it to the right edge (a stop at 80% keeps its
+   * value for the remaining 20%). It is a BACKGROUND layer — painted behind
+   * the pane's content by .pane::before; content surfaces (the timeline's
+   * loading/error/empty overlays) stay opaque and do NOT carry it (user
+   * direction 2026-09-10).
+   */
+  --pane-wash: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0),
+    rgba(0, 0, 0, 0.22) 80%
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * App frame — .shell
+ * Four-region grid: rail | sidebar | pane | members. Each region scrolls
+ * independently; the frame itself never scrolls (height 100dvh, overflow
+ * hidden). Mobile layout is driven by the same grid with the sidebar and
+ * members rail removed from flow (AppShell unmounts them < 768px).
+ * ------------------------------------------------------------------ */
+
+.shell {
+  display: grid;
+  /* THREE tracks by default: the 4th column is HIDDEN until one of the
+     rail icons selects a mode (owner direction 2026-09-12 — see RailIcons).
+     It was a permanent column whose presence and contents shared one flag,
+     which is how Home could only opt out of the member list by losing the
+     whole column (#105). */
+  grid-template-columns: var(--shell-rail) var(--shell-sidebar) minmax(0, 1fr);
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  position: relative;
+}
+
+/* The members rail is desktop-only; below 1280px it collapses out (the grid
+   drops its fourth track and the pane takes the space). The JS half of that
+   contract is `useShellBand` + AppShell's aside guard, and the two MUST agree:
+   rendering the aside while its track is gone left it a grid child with no
+   column, so auto-placement put it in the shell's SECOND row — a ~72px member
+   strip, with the left cluster and pane robbed of the height it took (#86:
+   44% of an 834×1210 screen abandoned). Below 1280px the members list
+   REPLACES the pane instead (.members-pane); below 768px it is a drawer. */
+/* Desktop, column OPEN: the fourth track is back, at the persisted width. */
+@media (min-width: 1280px) {
+  .shell--rail-open {
+    grid-template-columns: var(--shell-rail) var(--shell-sidebar) minmax(0, 1fr) var(--shell-members);
+  }
+}
+
+/* The column SLIDES in rather than snapping (owner direction 2026-09-13: the
+   opening should read as the column arriving over the corner its three icons
+   sit in). `grid-template-columns` is animatable in current Chromium/WebKit/
+   Gecko, so the fourth track grows from 0 while the pane gives up the width —
+   no overlay, no layout trick, and the shell stays a grid.
+   The duration is a token, which is the house reduce-motion contract: it is
+   zero under `prefers-reduced-motion` (tokens.css), so this needs no separate
+   query. */
+@media (min-width: 1280px) {
+  .shell {
+    transition: grid-template-columns var(--duration-pane) var(--shell-ease);
+  }
+}
+
+/* Below 768px (U1, mobile shell chrome v2) the shell is a vertical column:
+   the fixed-height MobileTopbar — the shell's ONLY mobile chrome (KTD1) —
+   above a pane that fills everything the bar leaves. The workspace rail no
+   longer exists at mobile (B2: it folded into the navigation drawer's
+   workspace strip), so no fixed 72px overlay intercepts taps on the left
+   edge. State banners keep their auto rows ahead of the topbar; the pane is
+   the one growing child, so the composer stays bottom-anchored inside it. */
+@media (max-width: 767px) {
+  :root {
+    /*
+     * Phone wash: the desktop --pane-wash is IDENTICAL here (the ::before is
+     * unscoped) but imperceptible at pane widths this narrow — measured
+     * 2026-09-18, phone and desktop both render rgb(26,26,30) → rgb(20,20,23),
+     * which reads as the flat gray the owner asked to remove. Same gradient,
+     * same to-right direction, same 80% stop — only the end alpha grows so
+     * the fade is actually visible across 390px: 0.46 lands the right edge on
+     * the deep background (#1a1a1e → ≈#0e0e11), the app's own darkest step.
+     */
+    --pane-wash: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0),
+      rgba(0, 0, 0, 0.46) 80%
+    );
+  }
+
+  .shell {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .shell > .pane {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* U6: Home's non-collapsible members aside (memberListCollapsible=false —
+     the 👥-trigger suppression lever) rides BELOW the pane in the mobile
+     column, where its desktop border-left runs off-screen; the separating
+     line moves to the top so the rail reads as a distinct band. Mobile-block
+     only: the desktop aside keeps its row-layout border-left. */
+  .shell > .members-rail {
+    border-left: none;
+    border-top: 1px solid var(--color-line);
+    /* Home keeps its all-members band mounted at mobile (static aside).
+       Bound it: flex:0 1 auto with content basis would let a populated
+       member list absorb the whole column and collapse the pane to 0
+       height (code-review finding #1). */
+    flex: 0 0 auto;
+    max-height: 40dvh;
+    overflow-y: auto;
+  }
+
+  /* U2: ONE title bar at mobile — the MobileTopbar carries the channel
+     title and the join-voice control (audit B3), so the pane's own channel
+     header folds away instead of stacking a second band. DM headers are
+     exempt: their DmCallIndicator is the DM call surface (participation-
+     based, no START_CALL gate) and has no topbar twin, so suppressing it
+     would make DM voice unreachable again. Desktop is untouched — this
+     rule lives only inside the mobile breakpoint. */
+  [data-testid='channel-header']:not([data-dm]) {
+    display: none;
+  }
+
+  /* U4: full-bleed composer. The audit found the composer box ~252px wide at
+     390px (squeezed by the old fixed rail + the desktop 16px gutter); with
+     the rail gone (U1), the remaining narrowing is the wrapper's px-4/pb-3
+     utilities. Below 768px the wrapper's side/bottom gutter collapses to the
+     device safe-area insets (8px floor: the well's rounded corners keep a
+     gutter on flat-screen phones; the max() grows to the real inset on
+     home-indicator devices so nothing clips). shell.css is UNLAYERED, so
+     this outranks the wrapper's layered Tailwind utilities without
+     !important. The selector is deliberately NOT .shell-scoped: the mobile
+     thread sheet (U3) portals its own MessageCompose outside .shell and
+     deserves the same treatment. The soft keyboard itself is handled by
+     interactive-widget=resizes-content (index.html) — the 100dvh column
+     shrinks and this bottom-anchored row rides up; no JS viewport handling. */
+  [data-testid='message-compose'] {
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * MobileTopbar (U1) — .mobile-topbar / -title / -action
+ * ☰ + title + 👥 in a fixed 48px band (surface-strong, one line border —
+ * the shell's button idiom). Triggers are inline-flex 44×44 bordered
+ * controls: constrained children of the bar, never grid-stretched shell
+ * children (the B1 regression: invisible full-width tap blocks). U2 adds
+ * the join-voice control beside the members trigger.
+ * 2026-09-18: the ☰ glyph became the active workspace's icon (owner
+ * direction) and the title moved OUT of the centered slot to hug it —
+ * [ws icon][# channel] left cluster, right controls unchanged. The sigil
+ * rides the title span (aria-hidden, the desktop pane-header idiom).
+ * ------------------------------------------------------------------ */
+
+.mobile-topbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  flex-shrink: 0;
+  padding: 0 6px;
+  background: var(--color-surface-strong);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.mobile-topbar-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Hugs the workspace icon instead of centering in the bar (owner
+     direction 2026-09-18): the name is a label FOR the icon, not a title
+     band. flex:1 keeps it consuming the middle so the right controls stay
+     pinned to the far edge. */
+  text-align: left;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.mobile-topbar-sigil {
+  margin-right: 2px;
+  color: var(--color-text-muted);
+}
+
+/* The workspace icon inside the nav trigger: the rail's squircle shrunk to
+   a 28px tile so it sits inside the 44px plate with breathing room. The
+   img/initial fill it and inherit the radius; overflow-hidden clips a
+   non-square icon image to the same squircle. */
+.mobile-topbar-ws {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-topbar-ws .workspace-icon {
+  width: 100%;
+  height: 100%;
+}
+
+.mobile-topbar-ws .workspace-initial {
+  border-radius: inherit;
+  font-size: 14px;
+}
+
+.mobile-topbar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px; /* 40×40 minimum hit area honored (corpus §4) */
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--duration-control) var(--shell-ease),
+    color var(--duration-control) var(--shell-ease),
+    scale 150ms ease-out;
+}
+
+.mobile-topbar-action:active {
+  scale: 0.96;
+}
+
+.mobile-topbar-action:hover {
+  background: var(--color-surface-hover);
+}
+
+.mobile-topbar-action:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+/* ---------------------------------------------------------------------------
+ * Navigation drawer workspace strip (U1, KTD2) — the workspace rail's
+ * content (Home + Integrations + workspaces) laid out horizontally above
+ * the channel list. The rail's own geometry is a centered vertical column
+ * (.rail-inner / .workspace-rail-list); the strip reflows it into a row
+ * that scrolls sideways when the roster outgrows the drawer width.
+ * ------------------------------------------------------------------ */
+
+.drawer-workspace-strip {
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.drawer-workspace-strip .rail-inner {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.drawer-workspace-strip .workspace-rail-list {
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+}
+
+/* The divider rotates into a vertical rule inside the horizontal strip. */
+.drawer-workspace-strip .rail-divider {
+  width: 2px;
+  height: 32px;
+}
+
+/* The rail-edge indicator pill has no rail edge to hug inside the strip —
+   selection still reads through the surface-selected background pill. */
+.drawer-workspace-strip .workspace-rail-item::before,
+.drawer-workspace-strip .rail-home[data-active='true']::before {
+  display: none;
+}
+
+/* Desktop left cluster: rail | sidebar share row 1; row 2 carries each
+   column's OWN footer — the user panel under the sidebar (column 2), the
+   build badge under the rail (column 1). The cluster spans the shell's first
+   two columns so banner rows above the grid and the pane/members tracks to
+   the right are untouched. */
+.left-cluster {
+  display: grid;
+  grid-template-columns: var(--shell-rail) var(--shell-sidebar);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-column: 1 / 3;
+  min-width: 0;
+  min-height: 0;
+}
+
+.left-cluster > .rail {
+  grid-area: 1 / 1;
+  min-height: 0;
+}
+
+.left-cluster > .sidebar {
+  grid-area: 1 / 2;
+  min-height: 0;
+}
+
+.user-panel-region {
+  grid-area: 2 / 2 / 3 / 3;
+  min-width: 0;
+  padding: 0 0 4px;
+  /* Same deep black as the sidebar above it — col 2 is one column stack
+     (owner direction 2026-09-22; was `background`, one step up). */
+  background: var(--color-background-deep);
+  /* The panel responds to the COLUMN's width (the drag handle resizes it
+     180–480), not the window's — this region is the panel's parent and shares
+     the column's width exactly. */
+  container: sidebar / inline-size;
+}
+
+/* Column-1 footer: the build badge, on the rail's own (deep) surface. The
+   whole left cluster shares background-deep now (2026-09-22), so this seam
+   is flush rather than stepped; separation from the message pane comes from
+   the pane's own lighter surface. */
+.rail-footer {
+  grid-area: 2 / 1 / 3 / 2;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  /* 12px bottom = the panel card's own inset (4px region padding + 8px card
+     margin), so the badge's baseline lines up with the panel's bottom edge. */
+  padding: 4px 2px 12px;
+  background: var(--color-background-deep);
+}
+
+.rail-version {
+  font-size: 10px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  /* A link to the release notes now (2026-09-27) — still chrome, so it keeps
+     the muted look and only answers hover/focus. The hash stays copyable as
+     plain text in the notes pane's header. */
+  text-decoration: none;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.rail-version:hover,
+.rail-version[aria-current='page'] {
+  color: var(--color-text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rail-version:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.drawer-user-panel {
+  border-top: 1px solid var(--color-line);
+}
+
+/* Home surface: the dashboard replaces the member rail, so the shell drops
+   its fourth track and the pane takes the full remaining width. */
+@media (min-width: 1280px) {
+  .shell--no-members {
+    grid-template-columns: var(--shell-rail) var(--shell-sidebar) minmax(0, 1fr);
+  }
+}
+
+/* States-first banners the shell renders in-flow above the grid rows.
+   DIRECT CHILD only: the descendant selector also matched every loading
+   placeholder nested inside the shell — the pane's message skeleton was
+   centred, squeezed to content width and given this banner's background and
+   bottom border because of it (caught by dumping computed styles, 2026-09-11).
+   A nested progressbar owns its own layout. */
+.shell > [role='progressbar'] {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.shell [data-testid='offline-banner'] {
+  grid-column: 1 / -1;
+  padding: 8px 16px;
+  background: var(--color-warning);
+  color: var(--color-on-warning); /* per-theme pair, AA-gated in palettes.test.ts */
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.shell [data-testid='permission-denied'] {
+  margin: auto;
+  max-width: 420px;
+  padding: 24px;
+  text-align: center;
+  color: var(--color-danger);
+  background: var(--color-surface-strong);
+  border-radius: var(--radius-md);
+}
+
+.shell [data-testid='view-only-note'] {
+  grid-column: auto;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-line);
+}
+
+.shell [data-testid='shell-skeleton'] {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Workspace rail — .rail / .rail-inner
+ * Deepest CHROME tone (background-deep); 44px buttons in 56–60px cadence; the
+ * active workspace takes the neutral selected pill. Columns separate by TONE
+ * STEPS, never lines (UI consistency pass 2026-09-15): the old border-right
+ * was the only visible column line in the shell and read as a different
+ * design language from every other seam — this step under `background` is the
+ * separation now.
+ * ------------------------------------------------------------------ */
+
+.rail {
+  background: var(--color-background-deep);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+
+.rail-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px; /* ~56–60px cadence with 44px items (corpus §2) */
+  /* 2px, not 12: the rail's first item (Home) must CENTER on the col-2
+     header's 48px band (center y=24; 2 + 44/2 = 24). At 12px it rode 10px
+     low beside the workspace name (owner report 2026-09-18). */
+  padding: 2px 0 12px;
+}
+
+.workspace-rail-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+/* Home / identity squircles: idle 16px radius, tightening toward a circle
+   on hover/active — the reference client's signature rail motion. */
+.workspace-rail-item,
+.rail-home {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px; /* 40×40 minimum hit area honored with margin (corpus §4) */
+  border-radius: 16px;
+  background: var(--color-surface-strong);
+  border: none;
+  cursor: pointer;
+  transition: border-radius var(--duration-control) var(--shell-ease),
+    background-color var(--duration-control) var(--shell-ease);
+}
+
+.rail-home {
+  color: var(--color-text-primary);
+}
+
+.rail-home:hover {
+  /* The owner's highlight pick (2026-09-18): the logo mark's dominant cyan,
+     deep step (#00808c — white-on-it 4.7:1, a hair better than the blurple
+     it replaces). Home is the one rail item that gets a COLOR hover; the
+     workspace squircles keep their neutral hover. */
+  background: var(--color-highlight);
+  color: var(--color-on-action);
+  border-radius: 13px;
+}
+
+.workspace-rail-item:hover,
+.workspace-rail-item[data-active='true'] {
+  border-radius: 13px;
+}
+
+.workspace-rail-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.workspace-rail-item[data-active='true'] {
+  background: var(--color-surface-selected);
+}
+
+/* Left route indicator: a white rounded pill hugging the rail edge — grows
+   on hover, full height when the workspace is active. The rail centers the
+   44px button in 72px, so -14px lands the pill at x=0. */
+.workspace-rail-item::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: transparent;
+  transition: height var(--duration-control) var(--shell-ease);
+}
+
+.workspace-rail-item:hover::before {
+  background: var(--color-text-primary);
+  height: 12px;
+}
+
+.workspace-rail-item[data-unread]::before {
+  background: var(--color-text-primary);
+  height: 20px;
+}
+
+.workspace-rail-item[data-active='true']::before {
+  background: var(--color-text-primary);
+  height: 40px;
+}
+
+/* Rail entries that address a surface (U13's integrations entry reuses
+   .rail-home and sets data-active while its panel is open, UX_SPEC §10):
+   the same selected-pill treatment as the active workspace — background
+   pill + the full-height left indicator. */
+.rail-home[data-active='true'] {
+  border-radius: 13px;
+  background: var(--color-surface-selected);
+}
+
+.rail-home[data-active='true']::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-primary);
+}
+
+.rail-divider {
+  width: 32px;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-line);
+  flex-shrink: 0;
+}
+
+.workspace-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: inherit;
+  object-fit: cover;
+  /* Image outline (UI consistency pass 2026-09-15): pure white at 10%, drawn
+     just inside the edge — the dark-mode depth ring for bare images. Never a
+     tinted gray: it picks up the surface underneath and reads as dirt. */
+  outline: 1px solid oklch(1 0 0 / 0.1);
+  outline-offset: -1px;
+}
+
+.workspace-initial {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* The rail badge is the channel row's badge (SidebarRowBadge: red
+   .channel-mentions when something mentions you, else the neutral
+   .channel-unread pill); this only pins it to the tile's corner. */
+.workspace-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  display: flex;
+}
+
+/* ---------------------------------------------------------------------------
+ * Channel sidebar — .sidebar / .sidebar-inner / .channel-*
+ * background-deep (same black as the rail, owner direction 2026-09-22);
+ * ~48px header; ~44px rows; hover pill / active neutral pill;
+ * muted text default, text-primary when active or unread.
+ * ------------------------------------------------------------------ */
+
+.sidebar {
+  background: var(--color-background-deep);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+
+.sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.channel-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Sidebar header band (search placement per UX_SPEC §5). */
+.channel-sidebar > .channel-sidebar-header,
+.sidebar-inner > .people-search,
+.channel-sidebar .channel-search {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--color-line);
+  flex-shrink: 0;
+}
+
+.channel-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* Docked thread split: the parent pane stays visible; the thread panel is
+   the same message surface rendered narrower (corpus §3b). */
+.pane-split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.pane-split > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Docked thread split (Discord reference, re-read 2026-09-12): the parent
+   pane stays visible down to the dock, which sits on the MESSAGE PANE's own
+   surface — same color family, no gray slab — separated by the tokenized
+   inset seam and rounded at the top like the pane card beside it.
+   No shadow, no special-casing: the panel is the message pane, narrower. */
+.thread-dock {
+  width: var(--shell-thread, 380px);
+  flex-shrink: 0;
+  background: var(--color-surface-emphasized);
+  border-left: 1px solid var(--color-line-inset);
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+}
+
+/* With a thread open the members rail unmounts (AppShell's membersHidden),
+   so the dock takes the column it freed: Discord's pane measures ~34% of the
+   window (corpus §3b: ~554 logical px of ~1613). Floored at the ratified
+   380px dock so a narrowed window never crushes it. */
+.shell--no-members .thread-dock {
+  width: clamp(380px, 34vw, 560px);
+}
+
+/* Tablet band (768–1279px): the thread IS the pane. A fixed dock cannot work
+   down here — 380px beside a 768px-layout's 416px pane leaves the conversation
+   you were reading 36px wide (102px at the owner's 834px reference width) — so
+   the thread replaces the pane instead, on the pane's own surface. */
+.thread-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-surface-emphasized);
+}
+
+/* Thread roster (ThreadsListPanel) — one component behind the ⋯ Threads
+   dialog and the context rail's Threads tab. The dialog caps its roster (as
+   it did before the extraction); the rail lets the list scroll inside its
+   tab body. */
+.threads-list-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.threads-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.modal-panel .threads-list {
+  max-height: 20rem;
+}
+
+/* The thread's transcript reads from the TOP: the origin, then its replies
+   under it (0e8a5756), and a thread being started looks exactly like the
+   thread it becomes — origin at the top, the composer at the bottom, space
+   between (owner, 2026-10-01; Discord and Slack). It used to sit on the
+   composer (2026-09-12), which put the origin at the bottom of a draft and
+   moved it to the top the moment the first reply landed. */
+.thread-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* "🧵 <name> started this thread · <date> at <time>" — the thread's own
+   record of who started it and when, at the top of the pane (Discord's
+   channel-side composition, moved into the pane where the user asked for
+   it, and carrying the date inline so a long origin cannot bury it). */
+.thread-started {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 16px 8px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.thread-started-time {
+  color: var(--color-text-muted);
+}
+
+/* Docked call split (calls plan U8, AM18): the thread-dock pattern applied
+   to the call surface — the same pane, narrower, beside the message pane.
+   Same inset seam as the thread dock (was --color-line, which is invisible
+   against this surface — the dock's own bg IS that value). */
+.call-dock {
+  width: var(--shell-call, 320px);
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-line-inset);
+}
+
+/* Mobile (<768px) call surface: a bottom sheet over the message pane
+   (Radix Dialog — the drawer pattern, anchored to the bottom). */
+.call-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--color-scrim);
+}
+
+.call-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-strong);
+  border-top: 1px solid var(--color-line);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  box-shadow: var(--shadow-sheet);
+  /* #150: neutralize the shadcn DialogContent's baked layout utilities —
+     this unlayered sheet owns its own box (bottom-docked, full-width,
+     unpadded; rows carry their own). transform/translate both die (the
+     wrapper's centering), max-width/padding/gap/borders follow. */
+  top: auto;
+  transform: none;
+  translate: none;
+  max-width: none;
+  padding: 0;
+  gap: normal;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+
+/* U3: the long-press message actions sheet — the call-sheet idiom with an
+   action-list body. Mounts only on coarse pointers (MessageList hosts it;
+   the gesture is gated), so no media scoping is needed — same as
+   .call-sheet. Buttons are ≥44px hit areas (corpus §4). NO overflow
+   clipping: the embedded ReactionPicker's popover floats above the trigger
+   and must never be cut by the sheet's box. */
+.message-actions-sheet {
+  padding: 8px 8px 12px;
+  gap: 2px;
+}
+
+/* U3: mobile (<768px) thread surface — the 380px dock would crush a 390px
+   screen, so the thread renders as a full-width sheet OVER the message
+   pane (the call-sheet visual idiom). The sheet only MOUNTS at mobile
+   (ThreadSurface's useIsMobileWidth switch); these rules stay inside the
+   breakpoint so the desktop dock contract is untouched. */
+@media (max-width: 767px) {
+
+  .thread-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    height: 92dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--color-surface-strong);
+    border-top: 1px solid var(--color-line);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    box-shadow: var(--shadow-sheet);
+    /* #150: neutralize the shadcn DialogContent's baked layout utilities
+       (see .call-sheet above — same bottom-docked family, same reasons). */
+    top: auto;
+    transform: none;
+    translate: none;
+    max-width: none;
+    padding: 0;
+    gap: normal;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+}
+
+/* U3 touch actions: on coarse pointers the long-press owns the message row —
+   native text selection and the iOS callout menu would fight the gesture,
+   and Copy Text in the action sheet is the sanctioned extraction path.
+   Capability-scoped (pointer, not width): desktop selection is untouched. */
+@media (pointer: coarse) {
+  [data-testid='message-item'] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* U5: the settings surfaces' mobile list — below 768px SettingsNav and
+   WorkspaceSettingsNav render as the pane's full-width LIST (the desktop
+   col-2 menu is the same component's desktop branch and is untouched). The
+   mobile variant only MOUNTS below the breakpoint (the AuthenticatedApp
+   isMobile switch, ThreadSurface's pattern), and these rules stay inside
+   the breakpoint accordingly. Rows are ≥44px hit areas (corpus §4); the
+   danger/logout row separates as the list's final row. */
+@media (max-width: 767px) {
+  .settings-list-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: 15px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--duration-control) var(--shell-ease),
+      color var(--duration-control) var(--shell-ease);
+  }
+
+  .settings-list-row:hover,
+  .settings-list-row:focus-visible {
+    background: var(--color-surface-hover);
+    color: var(--color-text-primary);
+  }
+
+  .settings-list-row:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-focus);
+  }
+
+  /* Active section: the persistent neutral pill (the channel-row idiom). */
+  .settings-list-row[data-active='true'] {
+    background: var(--color-surface-selected);
+    color: var(--color-text-primary);
+  }
+
+  /* The honest-dead Voice & Video row. */
+  .settings-list-row[data-dead='true'] {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* Log out — the list's final row (user settings only). */
+  .settings-list-row[data-danger='true'] {
+    color: var(--color-danger);
+    font-weight: 600;
+  }
+
+  .settings-list-logout-row {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-line);
+  }
+}
+
+.channel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px; /* ~44px with the 4px list gap; Discord sidebar density */
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 15px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--duration-control) var(--shell-ease),
+    color var(--duration-control) var(--shell-ease);
+}
+
+.channel-row:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* Active: the persistent neutral pill (corpus §6.4 — color reserved for
+   meaning; selection stays neutral charcoal). */
+.channel-row[data-active='true'],
+.channel-row[aria-current='page'] {
+  background: var(--color-surface-selected);
+  color: var(--color-text-primary);
+}
+
+/* Unread rows read as text-primary even without a pill. */
+.channel-row[data-unread] {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.channel-prefix {
+  color: var(--color-text-muted);
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.channel-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-unread {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-primary);
+  /* The page color, not on-action: on-action is WHITE in both harmony
+     themes, and white on the near-white text-primary pill read as an empty
+     lozenge in dark mode. The page color inverts correctly in every theme. */
+  color: var(--color-background);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.channel-mentions {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-danger);
+  color: var(--color-on-action);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Live-call badge on the channel row (calls plan U7, R3): a small presence
+   dot — color reserved for meaning (a call is LIVE right now). */
+.channel-live {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-presence-online);
+}
+
+/* Ringing emphasis (calls plan U11, AM6 — the ring's VISUAL equivalent):
+   the ringing channel row + slot carry a pulsing accent inset while the
+   ring slice holds the entry (mount → expiry/dismiss/join). Color reserved
+   for meaning (an incoming ring is summoning you). */
+.channel-row[data-ringing='true'] {
+  color: var(--color-text-primary);
+  font-weight: 500;
+  animation: ring-pulse 1.6s var(--shell-ease) infinite;
+}
+
+.channel-row[data-ringing='true']:hover,
+.channel-row[data-ringing='true'][data-active='true'] {
+  animation: none; /* pill/hover already read as foregrounded */
+  box-shadow: inset 0 0 0 1.5px var(--color-accent);
+}
+
+.channel-ring {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  animation: ring-pulse 1.6s var(--shell-ease) infinite;
+}
+
+/* The header phone affordance's ringing twin (U11). */
+.ring-emph {
+  color: var(--color-accent);
+  animation: ring-pulse 1.6s var(--shell-ease) infinite;
+}
+
+@keyframes ring-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px var(--color-accent);
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px var(--color-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .channel-row[data-ringing='true'],
+  .channel-ring,
+  .ring-emph {
+    animation: none;
+    box-shadow: inset 0 0 0 1.5px var(--color-accent);
+  }
+}
+
+/* Channel list item (U20): the row + its trailing context affordance; the
+   li anchors the context menu popover. */
+.channel-list-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-control) var(--shell-ease);
+}
+
+/* The ITEM is the visual row, so the hover band and the selected pill span its
+   full width — past the gear's reserved column, to the sidebar's right edge —
+   instead of stopping where that column begins (user report 2026-09-12).
+   Scoped to .channel-list-item: Home's nav rows reuse .channel-row. */
+/* A hovered row must stay BELOW the selected pill in the ramp, so the sidebar
+   distinguishes "under the cursor" from "you are here" (user report
+   2026-09-13). The shared hover token sits too close to the selected pill to
+   read as a difference on a dark pane. */
+.channel-list-item:hover {
+  background: var(--color-surface-hover-quiet);
+}
+
+/* Selection outranks hover, so the pill does not lighten under the pointer. */
+.channel-list-item:has(> .channel-row[data-active='true']) {
+  background: var(--color-surface-selected);
+}
+
+/* …which means the inner button paints nothing itself. */
+.channel-list-item > .channel-row,
+.channel-list-item > .channel-row:hover,
+.channel-list-item > .channel-row[data-active='true'] {
+  background: transparent;
+}
+
+.channel-list-item .channel-row {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Context trigger (calls plan U11, AM6/AM18): a right-aligned GEAR,
+   40×40 hit area (UX_SPEC §6). Revealed on CHANNEL ROW hover or keyboard
+   focus only — invisible AND pointer-inert at rest (no dead-zone menu
+   pops), while the 40px zone stays reserved so the row never shifts.
+   Keyboard-focusable always (hover is never the only path). */
+.channel-context-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: -2px 0;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-control) var(--shell-ease),
+    background-color var(--duration-control) var(--shell-ease),
+    color var(--duration-control) var(--shell-ease),
+    scale 150ms ease-out;
+}
+
+.channel-context-trigger:active {
+  scale: 0.96;
+}
+
+.channel-list-item:hover .channel-context-trigger,
+.channel-context-trigger:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Mouseover emphasis WITHOUT the filled plate: a plate is the row-selection
+   language, and the gear already sits on a row that is hovered or selected — a
+   second gray box read as a second selection (user report 2026-09-12). The
+   glyph carries it, and the row's own band is the spatial cue. */
+.channel-list-item:hover .channel-context-trigger:hover {
+  background: transparent;
+  color: var(--color-text-primary);
+}
+
+/* Keyboard focus keeps the plate: it is not competing with a pointer hover and
+   needs a stable target, paired with the inset ring below. */
+.channel-context-trigger:focus-visible {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.channel-context-trigger:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-focus);
+}
+
+.channel-context-trigger[aria-expanded='true'] {
+  opacity: 1;
+  color: var(--color-text-primary);
+}
+
+/* Channel context menu popover (U11): the workspace-menu popover geometry.
+   #150: Radix portals this to <body> and owns its position (inline, via the
+   popper) — the old absolute anchors under the row are neutralized to static
+   so this unlayered sheet can't fight the primitive. Visual styling stays. */
+/* The menu's virtual anchor (an inert zero-width span ending the row's flex
+   children): stretched to the row's FULL height so the popper's "bottom"
+   side + sideOffset measures from the row's bottom edge — a zero-size span
+   would sit vertically centered and the menu would overlap its own row. */
+.channel-context-anchor {
+  align-self: stretch;
+}
+.channel-context-menu {
+  /* relative (not static): same z-liveness fix as .workspace-menu-popover. */
+  position: relative;
+  min-width: 208px;
+  padding: 6px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.channel-context-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.channel-context-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+/* Voice-call slot row (calls plan U7): the live call rendered under its
+   owning channel — the channel-row pattern with an indent modifier, denser
+   and muted so it reads as the channel's child. No new design language. */
+.channel-row.call-slot {
+  min-height: 32px;
+  padding: 3px 8px 3px 28px;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.call-slot-icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.call-slot-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-strong);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Channel-header call menu (calls plan U7, AM17 "Start and ring"): the
+   workspace-menu popover geometry, right-anchored (the header actions hug
+   the pane's right edge). Items share .call-menu-item above. */
+.call-menu {
+  position: relative;
+  display: flex;
+}
+
+.call-menu-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 180px;
+  padding: 6px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* DM call indicator expansion (calls plan U10, R11/AM18): the call-menu
+   popover geometry widened for the compact call surface — incoming ring
+   (Join/Decline), in-call controls (mute/deafen/leave), missed call, and
+   the transient no-answer note all anchor to the DM header's right edge.
+   One escalation level (surface-strong); full-width-capped for mobile. */
+.dm-call-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 240px;
+  max-width: calc(100vw - 32px);
+  padding: 10px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Ring toast region (calls plan U11): the global fixed toast stack, top-
+   right, one escalation level above the shell's modals (z 60 > modal 50).
+   pointer-events pass through the region itself so it never blocks the
+   surfaces beneath; each card re-enables them. */
+.ring-toast-region {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(340px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.ring-toast {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  /* #150: neutralize the shadcn ToastRoot's baked layout utilities — this
+     unlayered card owns its own box (the dialog-family precedent). */
+  border: none;
+}
+
+.ring-toast-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* The visible "ring" itself — a pulsing accent dot (the audio ring's
+   mandatory visual equivalent; reduced motion falls back to a solid dot). */
+.ring-toast-pulse {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  animation: ring-toast-ping 1.2s var(--shell-ease) infinite;
+}
+
+@keyframes ring-toast-ping {
+  0%,
+  100% {
+    /* The pulse is the dot's own accent (it was a hard-coded blurple, which
+       ringed the green focus palettes' dot in the wrong hue). */
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-accent) 0%, transparent);
+  }
+}
+
+.ring-toast-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.ring-toast-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring-toast-pulse {
+    animation: none;
+  }
+}
+
+/* Server identity band: name + caret (switcher affordance) and the invite
+   action, hugging the sidebar top under the rail. */
+/* Both column headers place their NAME at 12px and their GEAR at 16px — the
+   name's inset taken from Home's wordmark, the gear's from the workspace
+   column's (user direction 2026-09-14: "the Hrmny placement is better than the
+   workspace name ... the workspace name gear is in a better place than Hrmny").
+   The right inset is larger than the left on purpose: it is what puts a 40px
+   gear box, whose glyph is centred, on the same line as the other column's. */
+/* The band carries the same underline as every other 48px header above
+   scrollable content (pane, members, search) — UI consistency pass
+   2026-09-15: its absence made the underline appear and disappear when
+   switching Home ⇄ workspace, which read as inconsistent row borders. */
+.server-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+  padding: 0 16px 0 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.server-name {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* The workspace name is a LABEL, not a trigger (owner direction 2026-09-12):
+   the gear in the header's right slot owns the menu, so the label takes the
+   free space and the gear sits flush right. */
+.server-name-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  /* The same title treatment as Home's wordmark (2026-09-14: "move the
+     workspace name so it's similarly placed as the home's Hrmny name/title")
+     — the two columns' headers are the same control, so the name carries the
+     same weight and the pair reads as one bar when switching between them. */
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.server-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-caret {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+/* The workspace header's gear takes the SAME box as a channel row's context
+   gear (40×40, glyph centred), which is what puts the two gears in this column
+   on one vertical line. A 24px box sized to its glyph left the pair 16px apart
+   (user report 2026-09-14: "the two gears here not being horizontally aligned
+   is awkward") — and it is the better hit area besides. */
+.server-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color var(--duration-control) var(--shell-ease),
+    color var(--duration-control) var(--shell-ease),
+    scale 150ms ease-out;
+}
+
+.server-action:active {
+  scale: 0.96;
+}
+
+.server-action:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* Workspace dropdown (server header) — Discord's server-name menu. The
+   trigger reuses .server-name; the wrapper anchors the popover. Same
+   popover language as the presence menu (surface-strong card, 1px line,
+   deep shadow). */
+.workspace-menu {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  /* Center the name and the gear on ONE line. The default `stretch` left the
+     40px gear box fixed while the name's span stretched full-height with its
+     text at the top — the name rode ~8px above the gear's centre, which read
+     as a misaligned pair against Home's header (where the header itself
+     centers its children). Reported with side-by-side crops, 2026-09-14. */
+  align-items: center;
+}
+
+.workspace-menu-popover {
+  /* #150: as a Radix-ported DropdownMenuContent the primitive's WRAPPER
+     positions the popover — the hand-rolled absolute anchors are dead.
+     relative (not static) keeps this z-index LIVE: static elements ignore
+     z-index, which left the menu z-auto against anything explicit. */
+  position: relative;
+  z-index: 50;
+  min-width: 208px;
+  padding: 6px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-menu-item,
+.call-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-menu-item:hover,
+.workspace-menu-item:focus,
+.workspace-menu-item:focus-visible,
+.workspace-menu-item[data-highlighted],
+.call-menu-item:hover,
+.call-menu-item:focus,
+.call-menu-item:focus-visible,
+.call-menu-item[data-highlighted] {
+  background: var(--color-surface-hover);
+  outline: none;
+}
+
+.workspace-menu-icon {
+  display: flex;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+/* Notification controls (2026-09-27). The shared Notifications menu group:
+   a small section label, then radio/checkbox items whose indicator sits in
+   a left inset (the item keeps the workspace-menu-item look; this only
+   makes room for the indicator the plain items do not have). */
+.notif-menu-label {
+  padding: 6px 10px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.notif-menu-item {
+  position: relative;
+  padding-left: 32px;
+}
+
+/* Every row keeps the 16px glyph column, glyph or not ("Use … default",
+   the broadcast switch), so the labels line up. */
+.notif-menu-item .workspace-menu-icon {
+  width: 16px;
+}
+
+.notif-menu-item[data-state='checked'] {
+  font-weight: 500;
+}
+
+/* The header control: the host's header-action button, plus a quieter tone
+   while the target INHERITS (no row of its own). The quiet tone is the
+   header's muted text token — never an opacity fade, which would drop the
+   glyph under the 3:1 non-text contrast floor. An explicit level reads in
+   the primary tone. */
+.notif-control {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.notif-control-button:not([data-inherited]) {
+  color: var(--color-text-primary);
+}
+
+.notif-control-anchor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* The "Notifications: Nothing" beat: under the control, non-blocking (no
+   pointer events), gone when empty. The region element itself stays mounted
+   (so the live region predates its words); only its paint is conditional. */
+.notif-control-confirm,
+.notif-control-error {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-popover);
+  box-shadow: var(--shadow-popover);
+  font-size: 12px;
+  color: var(--color-text-primary);
+  pointer-events: none;
+}
+
+.notif-control-confirm:not([data-visible]) {
+  /* Visually hidden, still in the accessibility tree. */
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.notif-control-error {
+  color: var(--color-danger);
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+}
+
+.notif-sheet-title {
+  padding: 4px 12px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Sidebar rows at a quieter level (notification controls). A MUTED row
+   (effective level "Nothing") never takes the unread weight and draws its
+   sigil faded plus a trailing bell-off glyph — the dimming lives in the
+   non-text parts so the NAME keeps the muted text token's AA contrast. Its
+   mention badge still renders (a mention through a mute is exactly what the
+   member must not miss). */
+.channel-row[data-muted] {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.channel-row[data-muted] .channel-prefix,
+.channel-row[data-muted] .home-avatar {
+  opacity: 0.45;
+}
+
+.channel-muted-glyph {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--color-text-muted);
+  opacity: 0.8;
+}
+
+/* The glyph takes the trailing slot; a mention badge after it sits flush. */
+.channel-muted-glyph + .channel-mentions {
+  margin-left: 4px;
+}
+
+/* Modals (create channel / invite people / create workspace). Radix dialog
+   parts, skinned with shell tokens: scrim overlay + centered surface card. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--color-scrim);
+}
+
+.modal-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 51;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  box-shadow: var(--shadow-modal);
+  /* #150: neutralize the shadcn DialogContent's baked layout utilities —
+     this unlayered panel owns its own box. `translate` (Tailwind v4's
+     property) would COMPOUND with the transform above (double-centering);
+     display:block reverts the wrapper's grid+gap; border:none keeps the
+     panel borderless as designed. */
+  translate: none;
+  display: block;
+  border: none;
+}
+
+.modal-title {
+  margin: 0 32px 4px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.modal-close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.modal-explainer {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.modal-label {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.modal-label-optional {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.modal-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.modal-input-prefix {
+  position: absolute;
+  left: 10px;
+  color: var(--color-text-muted);
+  font-size: 15px;
+  pointer-events: none;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-input-line);
+  background: var(--color-input);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.modal-input.has-prefix {
+  padding-left: 26px;
+}
+
+.modal-input:focus-visible {
+  /* The one focus recipe: same 2px ring as every control (the old
+     border-color + 1px ring was a weaker variant of the same signal). */
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+select.modal-input {
+  appearance: auto;
+}
+
+/* Nickname dialog (#169): the inline "Reset nickname" text button. */
+.modal-link {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.modal-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.modal-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+  border-radius: var(--radius-sm);
+}
+
+.modal-error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--color-danger);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-btn-primary,
+.modal-btn-danger,
+.modal-btn-secondary {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--duration-control) var(--shell-ease),
+    color var(--duration-control) var(--shell-ease),
+    scale 150ms ease-out;
+}
+
+.modal-btn-primary:active:not(:disabled),
+.modal-btn-danger:active:not(:disabled),
+.modal-btn-secondary:active:not(:disabled) {
+  scale: 0.96;
+}
+
+.modal-btn-primary {
+  background: var(--color-accent);
+  color: var(--color-onaccent);
+}
+
+.modal-btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+
+/* The ONE destructive confirm treatment (UI consistency, 2026-09-27): a
+   solid danger fill with on-action text — ConfirmDialog, the touch sheet's
+   delete step and InlineConfirm's armed button all read the same. Replaces
+   `modal-btn-primary bg-danger hover:bg-danger`, a utility fighting this
+   unlayered sheet's own hover rule. */
+.modal-btn-danger {
+  background: var(--color-danger);
+  color: var(--color-on-action);
+}
+
+.modal-btn-danger:hover {
+  background: color-mix(in oklab, var(--color-danger) 88%, black);
+}
+
+.modal-btn-secondary {
+  background: transparent;
+  color: var(--color-text-primary);
+}
+
+.modal-btn-secondary:hover {
+  background: var(--color-surface-hover);
+}
+
+.modal-btn-primary:disabled,
+.modal-btn-danger:disabled,
+.modal-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Workspace media settings (calls V2 plan U8): toggle rows + note cards,
+   skinned with shell tokens only. The switch is a role=switch button —
+   aria-checked carries the state; the knob position follows data-state. */
+.media-settings-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.media-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.media-toggle-row:last-child {
+  border-bottom: none;
+}
+
+.media-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.media-toggle-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.media-toggle-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.media-toggle-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  cursor: pointer;
+  transition: background-color var(--duration-control) var(--shell-ease);
+}
+
+.media-toggle-switch[data-state='on'] {
+  background: var(--color-accent);
+}
+
+.media-toggle-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--color-focus) 0 0 0 2px;
+}
+
+.media-toggle-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.media-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--color-onaccent);
+  transition: transform var(--duration-control) var(--shell-ease);
+}
+
+.media-toggle-switch[data-state='on'] .media-toggle-knob {
+  transform: translateX(18px);
+}
+
+.media-settings-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.invite-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.invite-link-row .modal-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* Bottom user panel: identity + transport controls pinned to the sidebar
+   foot (deeper chrome, like the rail). */
+.user-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* The composer well's height, not a number of its own: the two boxes sit a
+     column apart in the bottom row and must read as the same control (user
+     direction 2026-09-12). */
+  min-height: var(--shell-composer-height);
+  /* 12px sides: clear of the column's edges, like the composer's own gutter
+     (owner, 2026-09-27). The 8px bottom keeps its row aligned with the
+     composer's. */
+  margin: 0 12px 8px;
+  padding: 0 8px;
+  /* The column's own deep black, not surface-emphasized (owner report
+     2026-09-22: against the now-black sidebar the elevated fill read as a
+     mismatched strip — the border alone keeps the card's edge). */
+  background: var(--color-background-deep);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  flex-shrink: 0;
+}
+
+/* The user panel's avatar is sized in the scale beside .avatar; its status
+   dot is the shared `.avatar[data-presence]` dot (it used to restate that rule
+   here, and knew only online/offline — idle and dnd painted grey). */
+
+.user-panel-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  /* Claims all the room the actions leave: with the handle hidden below
+     264px of column (see the container rules above), this is ONE line that
+     truncates cleanly instead of two that both clip (owner report
+     2026-09-20). */
+  flex: 1;
+  line-height: 1.2;
+}
+
+.user-panel-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-panel-handle {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.user-panel-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 16px;
+}
+
+.user-panel-action:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* User-panel mic status (user-directed 2026-09-07): green + soft glow =
+   Cytale is hearing you (the AM5 monitor on the LOCAL mic — a muted track
+   reads as silence honestly). Phase 1 solid states; the Discord-style
+   wave-fill can ride data-hearing later without markup changes. */
+.user-panel-action[data-hearing='true'] {
+  color: var(--color-presence-online);
+  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-presence-online) 55%, transparent));
+}
+
+/* Shape-responsive SUBTRACTION, never stacking (owner direction 2026-09-20:
+ the two-row wrap "looks silly" — the panel keeps ONE row at every width and
+ gives up content in priority order instead). The handle goes first: one
+ truncated line reads fine, two read broken. Then the chrome narrows. The
+ name is last and always ellipsises. */
+@container sidebar (max-width: 264px) {
+  .user-panel-handle {
+    display: none;
+  }
+}
+
+@container sidebar (max-width: 232px) {
+  .user-panel {
+    gap: 6px;
+    /* The bottom margin is the SHARED BASELINE with the composer's pb-3 —
+       region padding (4px) + this margin (8px) = the 12px the well sits at.
+       The squeeze rule's earlier 4px here dropped the panel 4px below the
+       compose at narrow columns: the compose "sat above" the status panel
+       exactly as the owner's screenshot showed (2026-09-23). Squeeze the
+       SIDES only; the bottom edge is the alignment contract. */
+    margin: 0 4px 8px;
+    padding: 0 6px;
+  }
+}
+
+.user-panel-action[data-muted] {
+  color: var(--color-danger);
+  opacity: 0.8;
+}
+
+/* Member rail: hosts the directory and the profile-card overlay. */
+.members-rail .pane-header {
+  background: transparent;
+}
+
+.member-rail-wrap {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+
+.member-profile-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--color-surface-strong);
+  border-left: 1px solid var(--color-line);
+  padding: 20px 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.member-profile-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.member-profile-close:hover,
+.member-profile-close:focus-visible {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+/* Reply context: a quote block under the reply's header (owner direction
+   2026-09-27, after Clickclack) — accent bar, the replied-to author in the
+   accent colour, one muted line of their message. */
+.reply-context {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  margin: 4px 0 6px;
+  padding: 1px 0 1px 10px;
+  border: none;
+  border-left: 3px solid var(--color-accent);
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  width: fit-content;
+  max-width: min(100%, 640px);
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.reply-context:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.reply-context-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+
+.reply-context-name {
+  color: var(--color-accent);
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reply-context:hover .reply-context-name {
+  text-decoration: underline;
+}
+
+.reply-context-snippet {
+  display: block;
+  max-width: 100%;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+@keyframes reply-flash-bg {
+  0% { background: color-mix(in oklab, var(--color-action) 22%, transparent); }
+  100% { background: transparent; }
+}
+
+.reply-flash {
+  animation: reply-flash-bg 1.4s ease-out;
+}
+
+/* #114: the same wash marks the row a PERMALINK landed on — one visual
+   language for "this is the row you asked for", in the channel list and in a
+   thread panel alike. A distinct class, not `.reply-flash` under a borrowed
+   name, so either can move without moving the other. */
+.message-focus-flash {
+  animation: reply-flash-bg 1.4s ease-out;
+}
+
+/* Composer reply bar ("Replying to …" + ping toggle). */
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-line);
+  border-left: 3px solid var(--color-action);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-action) 7%, var(--color-card));
+  font-size: 13px;
+}
+
+.reply-bar-name {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.reply-bar-snippet {
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.reply-bar-ping {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.reply-bar-ping[aria-pressed='true'] {
+  background: color-mix(in oklab, var(--color-action) 16%, transparent);
+  border-color: color-mix(in oklab, var(--color-action) 45%, transparent);
+  color: var(--color-text-primary);
+}
+
+.reply-bar-cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.reply-bar-cancel:hover,
+.reply-bar-cancel:focus-visible {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+/* Self presence picker (user-panel foot). */
+.presence-menu {
+  position: relative;
+}
+
+.presence-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--duration-control) var(--shell-ease),
+    color var(--duration-control) var(--shell-ease);
+}
+
+.presence-menu-trigger:hover,
+.presence-menu-trigger:focus-visible {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.presence-menu-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--color-focus) 0 0 0 2px;
+}
+
+.presence-menu-label {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presence-menu-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 168px;
+  padding: 6px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.presence-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.presence-menu-item:hover,
+.presence-menu-item:focus-visible {
+  background: var(--color-surface-hover);
+  outline: none;
+}
+
+.presence-menu-item[aria-checked='true'] {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.presence-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+/* Category grouping.
+ *
+ * No horizontal padding, and a ZERO top offset on the first group. Both are
+ * deliberate: `.channel-list` already pads 8px, which is exactly the edge
+ * Home's own sections sit on — its section headings and the identity panel's
+ * avatar below them all share that line. The 8px these rules used to add put
+ * the workspace's CHANNELS heading 8px right of and 8px below Home's DIRECT
+ * MESSAGES, so the two columns read as different designs for no reason (owner
+ * report 2026-09-14: "In a workspace the CHANNELS heading should be in a
+ * similar location as Home's DIRECT MESSAGES. Basically the column should be
+ * consistently formatted."). Later groups keep their 16px separation — that
+ * is category rhythm, not column alignment. */
+.category {
+  margin-top: 16px;
+}
+
+.category:first-child {
+  margin-top: 0;
+}
+
+.category-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.category-channels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Invite landing actions row. */
+.invite-auth-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Message pane — .pane
+ * The #1a1a1e conversation surface (surface-emphasized); ~48px header band;
+ * independent scroll for history. The pane itself is the scroll container's
+ * flex parent — feature units lay out their own headers/composers inside.
+ * ------------------------------------------------------------------ */
+
+.pane {
+  position: relative; /* anchors the col-3 right-edge gradient overlay */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-surface-emphasized);
+  overflow: hidden; /* the inner scrollback scrolls, never the pane */
+}
+
+.pane > [role='progressbar'],
+.pane > .pane-header,
+.pane > header {
+  flex-shrink: 0;
+}
+
+/* The pane header band. Unqualified on purpose: the rail's pane (`.members-pane`,
+   which IS the pane at the tablet band) renders the same header OUTSIDE `.pane`,
+   and the `.pane`-scoped selector silently left it `display: block` — stacking
+   the mode icons under the title and starving the row (user report 2026-09-13).
+   Only one component renders this class (`RailPane`). */
+.pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--color-line);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  background: var(--color-surface-emphasized);
+}
+
+/* Empty/unselected state centering. */
+.pane [data-testid='no-channel-selected'] {
+  margin: auto;
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * Members rail — .members-rail / .members-inner
+ * bg-surface; separated from the pane by its own tone step (the old
+ * border-left used --color-line, which EQUALS this surface — an invisible
+ * border is dead weight, so it is gone; UI consistency pass 2026-09-15);
+ * directory content styles below.
+ * ------------------------------------------------------------------ */
+
+.members-rail {
+  /* Owner direction 2026-09-24 (#151 testing): col 4 carries the SAME tone
+     as col 2 — the right column joins the column-stack language the left
+     cluster got 2026-09-22 (background-deep), instead of sitting on the
+     raised surface tone. */
+  background: var(--color-background-deep);
+  /* A header + body column, like the pane it mirrors — NOT one scroll region.
+     The desktop rail now carries the same RailPane header the tablet band swaps
+     in, and that header must stay put while the list scrolls: an
+     `overflow-y: auto` here would scroll the mode icons out of the column,
+     which is the very control this change moved into it. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Tablet band (768–1279px): the members list takes the MESSAGE PANE's place
+   rather than docking beside it — the shell has no fourth track down here, and
+   the dock would crush the conversation (at 768px a 380px dock beside a 416px
+   pane leaves the parent 36px). It keeps the pane's own header idiom so the
+   members toggle renders in the same position in both states, and the pane's
+   surface family rather than the rail's — it IS the pane, showing members. */
+.members-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /* The rail's own background is the gray `--color-surface`, and the pane is
+     transparent — so it showed through every band the pane does not paint: the
+     title band behind "Members" read as a gray strip between the header and the
+     list (user report 2026-09-13: "remove the gray background behind the
+     header"). The pane sits on its CONTENTS' background instead, which leaves
+     the header as the column's only banded region. */
+  background: var(--color-background);
+  /* The containing block for the search row that rides the header band. */
+  position: relative;
+}
+
+.members-pane > .pane-header {
+  flex-shrink: 0;
+}
+
+/* The rail's own contents live INSIDE the body, but the band that controls them
+   belongs in the header: the search toggle rides up beside the mode icons
+   (user direction 2026-09-13: "the search should be up with the navigation
+   icons"). Its row is positioned out of the body's flow — `.members-pane` is
+   the containing block, so the row escapes the body's `overflow` clip and the
+   list starts directly under the title instead of under an empty band. */
+.members-pane .context-rail-tabs {
+  position: absolute;
+  top: 0;
+  right: 16px; /* mirrors the header's left padding */
+  height: 48px; /* the header band it sits in */
+  padding: 0;
+  z-index: 3;
+}
+
+/* Searching: the row spans the band, so the input gets the whole width. */
+.members-pane .context-rail-tabs--searching {
+  left: 16px;
+  right: 16px;
+}
+
+/* The mode's name, below the header and above its contents (user direction
+   2026-09-13). */
+.members-pane-band {
+  flex-shrink: 0;
+  padding: 10px 16px 4px;
+}
+
+.members-pane-title {
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.members-pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+
+.members-inner {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 8px;
+  gap: 8px;
+}
+
+.members-heading {
+  padding: 0 8px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* People directory (U26). */
+.people-directory {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.people-search {
+  display: flex;
+  align-items: center;
+}
+
+.people-search input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-input-line);
+  background: var(--color-input);
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.people-search input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.people-search input:focus-visible {
+  outline: none;
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+/* THE avatar: every Avatar carries this base class, and it is a COMPLETE
+   default — a circle, centred initials scaled to the circle, a flex item that
+   never shrinks, and an anchor for the presence dot and the agent seal below.
+   A surface picks a SIZE, never a shape: it sets `--avatar-size` (a class
+   below, or the component's `size` prop) and inherits everything else. The
+   base used to be `position: relative` alone and every surface restated the
+   rest; a caller that passed no class got a square tile with body-sized
+   initials (Home's inbox, owner report 2026-09-28).
+
+   `:where()` keeps the default at zero specificity, so a surface rule that
+   genuinely differs (the workspace icon's rounded square) still wins. The
+   initials are white: they sit on the deterministic hue tile (avatar.ts), which
+   is the same mid-tone in both themes. */
+:where(.avatar) {
+  --avatar-size: 32px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: var(--radius-full);
+  color: #fff;
+  /* ~13px at 32, 15px at 40, 25px at 72; never below a legible 9px. */
+  font-size: max(9px, calc(var(--avatar-size) * 0.3 + 3px));
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  user-select: none;
+  vertical-align: middle;
+}
+
+/* An uploaded image fills the circle and clips to it (any aspect renders
+   centred — there is no crop pipeline in v1). The depth ring is pure white at
+   10%, drawn just inside the edge (outline never affects layout); it matches
+   .workspace-icon. */
+:where(.avatar) > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  outline: 1px solid oklch(1 0 0 / 0.1);
+  outline-offset: -1px;
+}
+
+/* The one size scale. A surface names its step here (or passes `size`). */
+.reply-context-avatar {
+  --avatar-size: 16px;
+}
+
+.mention-autocomplete-avatar,
+.omni-avatar {
+  --avatar-size: 20px;
+}
+
+.home-row .home-avatar {
+  --avatar-size: 28px;
+}
+
+.user-panel-avatar {
+  --avatar-size: 32px;
+}
+
+.people-avatar,
+.inbox-row-avatar {
+  --avatar-size: 36px;
+}
+
+.message-avatar {
+  --avatar-size: 40px;
+}
+
+.profile-avatar {
+  --avatar-size: 72px;
+}
+
+/* A workspace icon is the one Avatar that is not a person: it keeps the
+   rail's rounded square (the circle is the PEOPLE shape). */
+.workspace-icon-avatar {
+  border-radius: var(--radius-2xl);
+}
+
+/* Presence rides the avatar's bottom-right corner (same treatment as the
+   user panel's own status dot) — the word stays as sr-only text for
+   assistive tech. */
+/* Attribute-gated, not class-gated: wherever an avatar is told its presence it
+   paints the dot, and an avatar with NO presence (a machine principal, which
+   has none to report) paints nothing at all. */
+.avatar[data-presence]::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  /* 14px, matching the user panel's own status dot: the two dots are the same
+     signal in two places, so they share one size (user direction 2026-09-11:
+     the member-list dot "could stand to be a bit larger"). */
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  border: 3px solid var(--color-background);
+  background: var(--color-presence-offline);
+}
+
+.avatar[data-presence='online']::after {
+  background: var(--color-presence-online);
+}
+
+.avatar[data-presence='idle']::after {
+  background: var(--color-presence-idle);
+}
+
+.avatar[data-presence='dnd']::after {
+  background: var(--color-presence-dnd);
+}
+
+/* Name over handle: the row's identity column, so a long name has the full
+   width beside the avatar instead of competing with the tag for one line
+   (user direction 2026-09-11). The avatar column stays vertically centered. */
+.people-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.people-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.people-handle {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Presence dots (shared by people rows and profile cards). */
+.people-presence,
+.profile-presence,
+.presence-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.presence-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-presence-offline);
+}
+
+.presence-indicator[data-presence='online'] {
+  background: var(--color-presence-online);
+}
+
+.presence-indicator[data-presence='idle'] {
+  background: var(--color-presence-idle);
+}
+
+.presence-indicator[data-presence='dnd'] {
+  background: var(--color-presence-dnd);
+}
+
+.presence-indicator[data-presence='offline'] {
+  background: var(--color-presence-offline);
+}
+
+.people-presence[data-presence='online'],
+.profile-presence[data-presence='online'] {
+  color: var(--color-presence-online);
+}
+
+.people-presence[data-presence='idle'],
+.profile-presence[data-presence='idle'] {
+  color: var(--color-presence-idle);
+}
+
+.people-presence[data-presence='dnd'],
+.profile-presence[data-presence='dnd'] {
+  color: var(--color-presence-dnd);
+}
+
+/* Profile card (member detail, U26). */
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-line);
+}
+
+
+.profile-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.profile-handle {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.profile-role {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.profile-joined {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.profile-presence-text {
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+ * Drawers (mobile < 768px) — .drawer / .drawer-overlay / .drawer-title
+ * Radix Dialog surfaces: full-height slide, 240ms ease-out-expo; the overlay
+ * dims the shell behind. surface-strong per the escalation rule.
+ * ------------------------------------------------------------------ */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--color-scrim);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  width: min(85vw, 320px);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-strong);
+  border-right: 1px solid var(--color-line);
+  box-shadow: var(--shadow-drawer-start);
+  animation: shell-drawer-in var(--duration-pane) var(--shell-ease);
+  /* #150: neutralize the shadcn DialogContent's baked layout utilities —
+     this unlayered drawer owns its box (left-docked, full-height). The
+     translate/transform pair kills the wrapper's centering; the rest of
+     the family follows (see .modal-panel / .call-sheet). */
+  transform: none;
+  translate: none;
+  max-width: none;
+  padding: 0;
+  gap: normal;
+  border: none;
+  border-right: 1px solid var(--color-line);
+}
+
+/* Members drawer slides from the right. */
+.drawer.members {
+  left: auto;
+  right: 0;
+  border-right: none;
+  border-left: 1px solid var(--color-line);
+  box-shadow: var(--shadow-drawer-end);
+  animation-name: shell-drawer-in-right;
+}
+
+/* U6 (m1): the drawer header row — title left, ✕ top-right (the
+   thread-sheet/call-sheet header idiom). The previous absolute placement
+   keyed a dead attribute selector Radix's Dialog.Close never carries, so the
+   ✕ fell into the column flow as a stretched, center-labelled button (the
+   audit's centered-close finding) and the title band rode the top edge alone.
+   The row owns the 48px band + border; the title is vertically centered in
+   it, so it can no longer crop. */
+.drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: 0 4px 0 16px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.drawer-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+/* 44×44 constrained control (corpus §4), flush with the header row's right
+   edge; hover/focus mirror the topbar actions. */
+.drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--duration-control) var(--shell-ease),
+    color var(--duration-control) var(--shell-ease),
+    scale 150ms ease-out;
+}
+
+.drawer-close:active {
+  scale: 0.96;
+}
+
+.drawer-close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.drawer-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+@keyframes shell-drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes shell-drawer-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Subtle exits (UI consistency pass 2026-09-15): Radix keeps the node mounted
+   while a [data-state='closed'] ANIMATION runs, so the drawer slides back out
+   instead of vanishing at the end of its enter. Exits mirror the enter but
+   read softer — same duration, ease-in rather than the expo-out arrival. */
+@keyframes shell-drawer-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes shell-drawer-out-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.drawer[data-state='closed'] {
+  animation: shell-drawer-out var(--duration-pane) ease-in;
+}
+
+.drawer.members[data-state='closed'] {
+  animation-name: shell-drawer-out-right;
+}
+
+.drawer-overlay[data-state='closed'] {
+  animation: shell-overlay-out var(--duration-control) ease-out;
+}
+
+@keyframes shell-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* The bottom sheets have no enter animation (they mount in place), so their
+   exit is a plain soften — a short fade with a small settle — never a full
+   slide that would read as heavier than the arrival. Token duration, so the
+   reduce-motion override collapses it. */
+.call-sheet[data-state='closed'],
+.thread-sheet[data-state='closed'] {
+  animation: shell-sheet-out var(--duration-control) ease-out;
+}
+
+@keyframes shell-sheet-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Reduced motion: tokens.css collapses --duration-pane to 0ms, which makes
+   these animations instant — nothing further needed, but freeze the frames
+   explicitly so older engines behave too. */
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Typing indicator (U23, corpus §3c).
+ *
+ * The band is the composer stack's FIRST element and is rendered
+ * unconditionally: 20px reserved + 6px, so a typist arriving or expiring moves
+ * nothing — not the composer, not the timeline above it. That reserved room is
+ * also the "margin above the composer" the owner called out.
+ *
+ * In flow, not absolute: the abs variant was positioned 6px above the WELL, so
+ * it painted over every other element in the stack (the verify banner and the
+ * reply bar both collided with it — caught by rendering the composer with
+ * typists injected, 2026-09-11).
+ *
+ * Alignment follows the reference: dots sit in the AVATAR COLUMN (40px slot,
+ * the message row's gutter) and the label starts at the message CONTENT inset
+ * (16px wrapper padding + 40px slot + 12px gap = 68px, the corpus's measured
+ * avatar/share column). Dots pulse sequentially (opacity only, no scale).
+ * ------------------------------------------------------------------ */
+
+/* The typing line: FLOATING (issue #153, owner report 2026-09-25 — "the
+   typing indicator is popping up and down"). The 2026-09-14 in-flow render
+   kept zero reserved space at rest, but made the whole well step down while
+   a typist was live — the pop is the new complaint. The line is now
+   anchored ABOVE the well, in the timeline's 12px breathing gap: content
+   never moves, an idle channel still shows nothing, and the painted pill is
+   opaque (--color-surface-strong) so the overlapped row edge stays legible.
+   pointer-events: none keeps it from blocking clicks on the last row; the
+   16px side inset still puts the dots in the message avatar column and the
+   name on the content inset. */
+.typing-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 2px);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 20px;
+  font-size: 13px;
+  line-height: 20px;
+  pointer-events: none;
+  /*
+   * The pill (owner direction 2026-09-12): a background only as wide as the
+   * indicators, rather than a full-width band. The padding PAINTS it and the
+   * equal negative margin cancels it again, so the dots stay in the avatar
+   * column and the label stays on the message content inset — the alignment
+   * the corpus pins and that Discord's own screenshots match. Painting without
+   * moving the text is the whole trick; do not "simplify" one of the pair away.
+   *
+   * Only ever visible while someone is typing: TypingIndicator returns null
+   * with no typists, so the reserved band above the composer stays bare at rest
+   * and keeps its double duty as the composer margin the owner asked for.
+   */
+  padding: 2px 10px;
+  margin: -2px -10px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-strong);
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  flex-shrink: 0;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-muted);
+  animation: shell-typing-pulse 700ms infinite;
+}
+
+.typing-dot[data-dot='1'] {
+  animation-delay: 0ms;
+}
+
+.typing-dot[data-dot='2'] {
+  animation-delay: 180ms;
+}
+
+.typing-dot[data-dot='3'] {
+  animation-delay: 360ms;
+}
+
+@keyframes shell-typing-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.typing-names {
+  font-weight: 600;
+}
+
+.typing-remainder {
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * Thread side-panel separation (U22, corpus §3b).
+ * The panel's left seam is the tokenized inset line (formerly the raw
+ * --shell-thread-border, corpus-measured #111216).
+ * ------------------------------------------------------------------ */
+
+[data-testid='thread-side-panel'] {
+  border-left-color: var(--color-line-inset);
+}
+
+/* ---------------------------------------------------------------------------
+ * Message content inline markdown (UI polish slice 2).
+ * markdown.tsx emits .mention / .inline-code / .link / .bold / .italic —
+ * these were referenced since U21 slice 2 but never styled.
+ * ------------------------------------------------------------------ */
+
+.mention {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 2px;
+  font-weight: 500;
+  cursor: pointer; /* hover affordance until profiles land */
+}
+
+.mention:hover,
+.mention:focus-visible {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  text-decoration: underline;
+}
+
+.inline-code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  padding: 1px 4px;
+}
+
+/* Machine-principal seal: the presence dot's mirror on the avatar's top-right.
+   One marker for bot/agent/webhook (the shared-badge rule), replacing the
+   inline "BOT" text pill — the shell reserves color for meaning, so the seal
+   is a neutral disc with the robot glyph cut out of it. */
+.avatar-kind {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* The presence dot is 14px, but a WHITE disc reads larger than a muted one
+     of the same size, so the seal is drawn smaller to land at the same
+     apparent weight. 12px still read large (user direction 2026-09-11, twice),
+     so it is 10px — the disc is deliberately smaller than the dot it mirrors
+     because the eye weighs the lit area, not the geometry. */
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  /* Same background ring the presence dot wears at the other corner, one
+     step thinner so the seal stays lighter than the dot it mirrors. */
+  border: 2px solid var(--color-background);
+  /* The glyph's cut-outs must land in the DISC's colour, not the ink's —
+     painting head and eyes in the same colour made the eyes invisible and the
+     seal read as a blob (caught on a 4x render, 2026-09-11). */
+  --seal-disc: var(--color-text-primary);
+  --seal-ink: var(--color-background);
+  background: var(--seal-disc);
+  color: var(--seal-ink);
+  box-sizing: content-box;
+}
+
+/* Inside the seal the glyph reads as a cut-out, so its "eyes" (drawn in the
+   background color) match the disc. */
+.avatar-kind svg {
+  display: block;
+}
+
+/* Message hover toolbar: the keyboard half of the reveal (hover is the
+   `group-hover:` utilities on the row). `:focus-visible` — not
+   `:focus-within` — is what keeps this from latching: the row is
+   tabIndex={-1}, so a plain click focuses it, and a focus-within reveal left
+   the toolbar pinned open over the message ABOVE, making that row's hover
+   unreachable (user report 2026-09-11). Click-focus no longer reveals it;
+   keyboard focus still does. */
+.message-actions-host:has(:focus-visible) [data-testid='message-actions'] {
+  display: flex;
+  opacity: 1;
+}
+
+/* WHERE the toolbar sits is config-driven (messageActionsPlacement.ts), and
+   both placements share one markup — the geometry and the control order are
+   here.
+
+   'top-right': the reference client's horizontal pill at the hovered
+   message's top-right, lifted so it straddles the row's top edge — only its
+   bottom 6px (ACTIONS_OVERLAP) rest on the row, so it no longer covers the
+   text it acts on (owner report 2026-09-28), while still touching the row it
+   belongs to (a bar wholly over the message above read as that message's —
+   user report 2026-09-12). */
+.message-actions[data-placement='top-right'] {
+  /* `--actions-top` is written at reveal by MessageItem's clampRail: the lift
+     above, clamped so the pill stays whole inside the timeline or thread
+     scroller (pushed down on the first visible row, up on the last). The
+     fallback is the unclamped lift for a ~40px pill. */
+  top: var(--actions-top, -34px);
+  right: 16px;
+  flex-direction: row;
+}
+
+/* 'left-rail': the same controls stacked vertically in the gutter left of the
+   message, horizontally centred in that gutter and vertically centred on the
+   message (user direction 2026-09-12). The gutter runs from the pane's edge to
+   the message text: 16px row padding + 40px avatar + 12px gap = 68px wide, so
+   a 46px rail centres at (68 - 46) / 2 = 11px — not at the avatar's own left
+   edge, which left it hugging the divider. */
+.message-actions[data-placement='left-rail'] {
+  left: 11px;
+  top: 50%;
+  /* Centred, then shifted back into the visible pane by the row's own
+     measurement (MessageItem's clampRail) — a 225px rail centred on a 60px
+     row otherwise ran off the top of the scroller and hid its first
+     actions. */
+  transform: translateY(calc(-50% + var(--rail-shift, 0px)));
+  flex-direction: column;
+  padding: 4px 2px;
+}
+
+/* Reading order top→bottom: the rule, then reply, Copy Link (#114), thread,
+   edit, delete, and the react emoji LAST (user direction 2026-09-12; Copy
+   Link joins beside Reply so the two share actions stay together).
+   `order` re-arranges the shared markup rather than duplicating it; the pill
+   keeps DOM order. */
+.message-actions[data-placement='left-rail'] .message-actions-divider {
+  order: 1;
+  margin: 2px 0;
+  width: 20px;
+  height: 1px;
+}
+
+.message-actions[data-placement='left-rail'] [data-testid='action-reply'] {
+  order: 2;
+}
+
+/* #114 Copy Link reads directly after Reply — the two share actions stay
+   adjacent in both placements (the pill keeps DOM order, which is the same). */
+.message-actions[data-placement='left-rail'] [data-testid='action-copy-link'] {
+  order: 3;
+}
+
+.message-actions[data-placement='left-rail'] [data-testid='action-start-thread'] {
+  order: 4;
+}
+
+.message-actions[data-placement='left-rail'] [data-testid='action-edit'] {
+  order: 5;
+}
+
+.message-actions[data-placement='left-rail'] [data-testid='action-delete'] {
+  order: 6;
+}
+
+.message-actions[data-placement='left-rail'] [data-testid='reaction-picker-root'],
+.message-actions[data-placement='left-rail'] [data-testid='action-react'] {
+  order: 7;
+}
+
+/* Message headings (# .. ######): sized by level, no document semantics —
+   a chat message is not a section (see renderMarkdown). Discord-sized: h1/h2
+   read as titles, h3 and below as emphasised body text. */
+.md-heading {
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.3;
+  /* Room to read as a heading; none above the FIRST block, which is the row's
+     own first line (it would just pad the row). */
+  margin: 10px 0 3px;
+}
+
+.md-heading:first-child {
+  margin-top: 0;
+}
+
+.md-heading-1 {
+  font-size: 1.5em;
+}
+
+.md-heading-2 {
+  font-size: 1.3em;
+}
+
+.md-heading-3 {
+  font-size: 1.12em;
+}
+
+.md-heading-4,
+.md-heading-5,
+.md-heading-6 {
+  font-size: 1em;
+  font-weight: 600;
+}
+
+/* Decorations the inline parser can now emit: underline and strike (bold
+   italic reuses .bold/.italic). Explicit rules so neither depends on a UA
+   default that Tailwind's preflight might change. */
+.md-underline {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-strike {
+  text-decoration: line-through;
+}
+
+/* Both on ONE element — the composer's text node that is underlined AND
+   struck (Lexical puts both classes on it; the timeline nests two elements,
+   whose decorations already combine). */
+.md-underline.md-strike {
+  text-decoration: underline line-through;
+}
+
+/* Message blockquote and lists. Real <blockquote>/<ul>/<ol> elements (unlike
+   the headings, these ARE the right semantics): the UA supplies list markers,
+   and the quote reads as a quotation. Discord's shape: a left bar, the text
+   itself not shouted. */
+.md-quote {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 4px solid var(--color-line);
+  color: var(--color-text);
+}
+
+.md-list {
+  margin: 4px 0;
+  padding-left: 22px;
+  /* Tailwind's preflight zeroes list markers; put them back explicitly (the
+     UA default is not something to rely on under a reset). */
+  list-style-position: outside;
+}
+
+ul.md-list {
+  list-style-type: disc;
+}
+
+ol.md-list {
+  list-style-type: decimal;
+}
+
+.md-list-item {
+  margin: 1px 0;
+}
+
+.md-task {
+  font-size: 0.95em;
+}
+
+/* A task row shows its checkbox INSTEAD of a bullet (Discord parity): the
+   glyph occupies the marker column. */
+.md-list-item:has(.md-task) {
+  list-style: none;
+  margin-left: -18px;
+}
+
+/* Fenced code block (``` … ```): a rounded panel that scrolls on its own axis
+   so a long transcript line never widens the message row. It keeps authored
+   whitespace (`white-space: pre`) inside the pre-wrap message container.
+   Card tier (radius-md) — the 6px it used to carry matched no tier. */
+.code-block {
+  margin: 4px 0;
+  padding: 8px 10px;
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.45;
+}
+
+.code-block code {
+  font-family: inherit;
+  white-space: inherit;
+}
+
+.link {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.link:hover,
+.link:focus-visible {
+  text-decoration: underline;
+}
+
+/* In-app message permalink chip (#118): a link that addresses a message we
+   can resolve renders as a chip — channel, author, the target's own first
+   words — instead of a bare URL, the way a mention renders as a name. The
+   degraded state is the plain .link above, so this only ever ADDS. */
+.permalink-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.permalink-chip:hover,
+.permalink-chip:focus-visible {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  text-decoration: underline;
+}
+
+/* While a permalink resolves it holds the chip's one-line box (#14): same
+   border and padding, the URL ellipsized, so the swap to the chip (or back to
+   a plain link on a miss) never changes the row's height after the list has
+   measured it. */
+.permalink-chip-pending {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  vertical-align: bottom;
+}
+
+.permalink-chip-pending > a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permalink-chip-sep {
+  color: var(--color-text-muted);
+}
+
+.permalink-chip-author {
+  color: var(--color-text-primary);
+}
+
+/* The snippet is a preview, not the message: it never wraps and never pushes
+   the row into a wider layout than the message around it. */
+.permalink-chip-snippet {
+  color: var(--color-text-muted);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40ch;
+}
+
+.bold {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.italic {
+  font-style: italic;
+}
+
+/* Date divider in the virtualized list (MessageList renders it). */
+[data-testid='date-divider'] {
+  user-select: none;
+}
+
+/* Thin scrollbars on scroll containers (replies list, etc.). */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-hover) transparent;
+}
+
+/* ---------------------------------------------------------------------------
+ * Home surface — user landing (rail Home button / zero-workspace state).
+ * Second column: DM list + workspace jump list + mentions/threads nav.
+ * Main area: greeting, catchup cards, account stats, quick actions.
+ * ------------------------------------------------------------------ */
+
+.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  height: 48px;
+  /* Name at 12px, gear at 16px — the same pair as the workspace header, so the
+     two columns' headers read as one control bar. */
+  padding: 0 16px 0 12px;
+  /* The same header-band underline as the workspace header (one rule for
+     every 48px band above scrollable content — UI consistency pass
+     2026-09-15). */
+  border-bottom: 1px solid var(--color-line);
+}
+
+.home-wordmark {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.home-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* The same box as the workspace header's gear (40×40, glyph centred): a 24px
+     box sized to its glyph left the two headers' gears 12px apart. */
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  transition: background var(--duration-control) ease, color var(--duration-control) ease,
+    scale 150ms ease-out;
+}
+
+.home-add:active {
+  scale: 0.96;
+}
+
+.home-add:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* Home nav rows reuse .channel-row (hover/active/unread states) with an
+   avatar (28px, in the scale beside .avatar) in place of the # prefix. */
+
+.home-row .home-row-sub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* #94 — the DM column's start-conversation affordance: a compact ＋ row at
+   the top of the section (channel-column precedent), inline in the empty
+   state. The plus shares the row glyph treatment. */
+/* The DM section's ＋: a lone glyph pushed to the heading's right edge by the
+   auto margin (the label is a flex row), so it lines up with the column
+   header's gear above it. Measured, not derived: the header pads 16px and the
+   gear is a 40px box, putting its centre 36px in from the column's right edge;
+   the heading pads 8px and this is a 24px box, so 8px of right margin lands it
+   on the same centre-line (owner report 2026-09-14: "The plus and gear in the
+   home still aren't horizontally aligned — I think the gear's in the correct
+   place"). */
+.dm-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 8px 0 auto;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--duration-control) ease, color var(--duration-control) ease,
+    scale 150ms ease-out;
+}
+
+.dm-add:active {
+  scale: 0.96;
+}
+
+.dm-add:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.dm-add:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+/* #94 — the start-DM member picker. The modal shell (.modal-panel) is the
+   shared dialog surface; these rules add the centred picker proportions and
+   the grouped, selectable member list inside it. */
+.dm-picker-panel {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.dm-picker-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-line);
+}
+
+.dm-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.dm-picker-option:hover,
+.dm-picker-option[data-active='true'] {
+  background: var(--color-surface-hover);
+}
+
+.dm-picker-option:focus-visible {
+  /* The one focus recipe (UI consistency pass 2026-09-15): the 2px focus
+     ring every other control wears — the old accent outline was a second
+     focus language. */
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+/* A principal the app will not open a conversation with (agents, webhooks):
+   the row stays readable — it carries the reason in place of the handle — but
+   it reads as unavailable and takes no pointer. */
+.dm-picker-option[data-blocked] {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.dm-picker-option[data-blocked]:hover {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+ * Omnisearch (Cmd-K palette) — one query over the caller's reachable
+ * messages, grouped Messages / Direct Messages. The shape is the consensus
+ * palette: top-anchored panel, query row flush to its top, grouped body with
+ * a roving active row the keyboard and the mouse both drive.
+ * ------------------------------------------------------------------ */
+.omni-panel {
+  top: 14vh;
+  transform: translate(-50%, 0);
+  width: min(640px, calc(100vw - 32px));
+  /* #150, as .modal-panel: the wrapper's `translate` (Tailwind v4's own
+     property) compounded with the transform above — the palette sat a
+     quarter-width left of centre and, still carrying translate-y(-50%),
+     jumped up as results grew it. Its sm:max-w-lg also capped the 640px. */
+  translate: none;
+  max-width: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.omni-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.omni-glyph {
+  color: var(--color-text-muted);
+  font-size: 18px;
+}
+
+.omni-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 15px;
+}
+
+.omni-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.omni-kbd {
+  flex-shrink: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+/* The house ✕ (.modal-close), set in the query row rather than pinned to
+   the panel's corner. */
+.modal-close.omni-close {
+  position: static;
+  flex-shrink: 0;
+}
+
+.omni-body {
+  min-height: 120px;
+  max-height: min(52vh, 480px);
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.omni-empty {
+  padding: 20px 12px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.omni-group + .omni-group {
+  margin-top: 6px;
+}
+
+.omni-group-label {
+  margin: 6px 8px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.omni-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.omni-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.omni-row[data-active],
+.omni-row[data-selected='true'] {
+  background: var(--color-surface-hover);
+}
+
+.omni-row[data-active] .omni-where,
+.omni-row[data-selected='true'] .omni-where {
+  color: var(--color-text-primary);
+}
+
+.omni-where {
+  flex-shrink: 0;
+  min-width: 96px;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* The author's 20px avatar and the snippet: one unit, so a narrow palette
+   wraps them together. The avatar sits on the snippet's first line. */
+.omni-byline {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.omni-snippet {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.35;
+  /* Two lines, then fade — the row is a pointer, not the destination. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.omni-author {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.omni-mark {
+  background: transparent;
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+
+.omni-time {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+/* Phone: one line cannot hold the place, the avatar, the snippet and a
+   "Yesterday, 2:30 PM" stamp — the snippet was squeezed to a word. The place
+   and the stamp share the first line; the byline takes the full width
+   beneath. */
+@media (max-width: 767px) {
+  .omni-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .omni-where {
+    flex: 1;
+    max-width: none;
+  }
+
+  .omni-time {
+    order: 1;
+  }
+
+  .omni-byline {
+    order: 2;
+    flex-basis: 100%;
+  }
+}
+
+/* Dashboard (main area when no DM conversation is selected). */
+.home-dash {
+  height: 100%;
+  overflow-y: auto;
+  padding: 32px 36px;
+}
+
+.home-dash-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.home-greeting-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.home-greeting-sub {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.home-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 10px;
+}
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 1023px) {
+  .stat-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.stat-card {
+  padding: 14px 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.catchup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.catchup-card {
+  padding: 14px 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.catchup-workspace {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.catchup-count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.catchup-channel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text);
+  text-align: left;
+  transition: background var(--duration-control) ease;
+}
+
+.catchup-channel:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.catchup-channel .channel-unread {
+  flex-shrink: 0;
+}
+
+.all-caught-up {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* NO CARD (owner direction 2026-09-15): the empty line sat in a filled,
+     bordered panel — the only empty state in its column that did — which read
+     as a card with nothing in it. Plain text now, like the empty lines beside
+     it (.home-empty). */
+  padding: 8px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Mention inbox (#117) — Home's message-level "where was I needed" list.
+   Deliberately NOT a stat strip and NOT a catch-up card: each row is one
+   message that addressed the member, with a link to it. No counts live here —
+   the unread numbers stay on the stat cards and the rail badges, which read
+   the one watermark (docs/architecture/product-invariants.md #2). */
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px;
+  /* NO CARD behind the contents (owner direction 2026-09-15): the rows were
+     filled `.surface` panels with borders, which turned an inbox of one or two
+     mentions into a wall of boxes under the sidebar's plain-text rows. The
+     hover still answers the pointer, so a row reads as a row. */
+  border-radius: var(--radius-md);
+}
+
+.inbox-row:hover {
+  background: var(--color-surface-hover-quiet);
+}
+
+/* The inbox's two actions — "Mark all done" and each row's "Done" — are ONE
+   compact size in both variants (they were 24px/11px vs 30px/12px in the
+   column, and a full 36px .home-btn vs 30px on the dashboard: siblings that
+   read as different kinds of action). Compact, because neither is a primary
+   action of its own. In the column the sweep rides the heading, right-aligned
+   like the ＋ on Direct Messages. (Qualified with .home-btn: the base rule
+   comes later in this file, and at equal specificity it used to win — the
+   row's "Done" never got its own size.) */
+.home-btn.inbox-sweep,
+.home-btn.inbox-row-done {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.category-label .inbox-sweep {
+  margin-left: auto;
+  letter-spacing: 0.02em;
+}
+
+/* The inbox avatar is a two-line row's avatar, like the people list's
+   (36px, in the scale beside .avatar). */
+
+.inbox-row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.inbox-row-meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.inbox-row-author {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.inbox-row-channel {
+  color: var(--color-text);
+}
+
+.inbox-row-sentence {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+a.inbox-row-sentence {
+  text-decoration: none;
+}
+
+a.inbox-row-sentence:hover,
+a.inbox-row-sentence:focus-visible {
+  text-decoration: underline;
+  color: var(--color-accent);
+}
+
+.inbox-row-done {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.home-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background var(--duration-control) ease,
+    border-color var(--duration-control) ease, scale 150ms ease-out;
+}
+
+.home-btn:active:not(:disabled) {
+  scale: 0.96;
+}
+
+.home-btn:hover {
+  background: var(--color-surface-hover);
+}
+
+.home-btn--primary {
+  background: var(--color-accent);
+  border-color: transparent;
+  color: var(--color-onaccent);
+}
+
+.home-btn--primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.home-hero {
+  margin: auto;
+  padding: 40px 24px;
+  max-width: 480px;
+  text-align: center;
+}
+
+.home-hero-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.home-hero-sub {
+  margin: 8px 0 20px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+/* Home header Actions affordance: ellipsis trigger + anchored menu. */
+.header-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.header-actions-menu {
+  /* Radix-positioned (the primitive's wrapper anchors it): relative keeps
+     the z-index live, as for .workspace-menu-popover. */
+  position: relative;
+  z-index: 50;
+  min-width: 190px;
+  padding: 6px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.header-actions-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text-primary);
+  text-align: left;
+  transition: background var(--duration-control) ease;
+}
+
+.header-actions-item:hover,
+.header-actions-item:focus,
+.header-actions-item[data-highlighted] {
+  background: var(--color-surface-hover);
+  outline: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * ContextRail — the right column's icon-tab header (Members | Call log).
+ * Content is contextual per host (workspace channel vs Home aggregate).
+ * ------------------------------------------------------------------ */
+
+.context-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--color-background);
+}
+
+.context-rail-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+}
+
+.context-rail-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  transition: background var(--duration-control) ease, color var(--duration-control) ease,
+    scale 150ms ease-out;
+}
+
+.context-rail-tab:active {
+  scale: 0.96;
+}
+
+.context-rail-tab:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.context-rail-tab[data-active='true'] {
+  background: var(--color-surface-selected);
+  color: var(--color-text-primary);
+}
+
+.context-rail-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+.context-rail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* ---------------------------------------------------------------------------
+ * Column resize handles — drag (or Arrow keys) on a boundary to resize the
+ * neighboring column; the pane flexes. Anchored to the live grid tracks.
+ * ------------------------------------------------------------------ */
+
+.shell-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  z-index: 45;
+  cursor: col-resize;
+  background: transparent;
+  transition: background var(--duration-control) ease;
+}
+
+.shell-resize-handle:hover,
+.shell-resize-handle:focus-visible {
+  background: var(--color-accent);
+  opacity: 0.35;
+  outline: none;
+}
+
+.shell-resize-handle-sidebar {
+  left: calc(var(--shell-rail) + var(--shell-sidebar) - 4px);
+}
+
+.shell-resize-handle-members {
+  right: calc(var(--shell-members) - 4px);
+}
+
+/* The members handle only makes sense while the fourth track exists. */
+@media (max-width: 1279px) {
+  .shell-resize-handle-members {
+    display: none;
+  }
+}
+
+.shell--no-members .shell-resize-handle-members {
+  display: none;
+}
+
+/* ...and it exists only while the column is open, at any width. */
+.shell:not(.shell--rail-open) .shell-resize-handle-members {
+  display: none;
+}
+
+/* The three-mode toggle (RailIcons) — always visible, per owner direction:
+   the hover-only house rule was written for message actions, not for the only
+   way to open a region, and hover does not exist on touch. */
+.rail-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* The band the icons ride on surfaces with NO pane header of their own (Home) —
+   the same 48px and the same 16px inset as the channel header, so the control
+   sits in one place across every surface. When it is present the dashboard must
+   stop claiming height:100% of a container it no longer has to itself.
+   Carries the header-band underline like every other 48px band above
+   scrollable content (UI consistency pass 2026-09-15). */
+.rail-icons-band {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.rail-icons-band + .home-dash {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Rail header search: magnifier at the right edge; selecting it opens a
+   borderless input expanding leftward (covering the inactive tab icon). */
+.context-rail-tablist {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.context-rail-tabs:not(.context-rail-tabs--searching) .context-rail-search-toggle {
+  margin-left: auto;
+}
+
+.context-rail-active-icon {
+  display: flex;
+  cursor: default;
+}
+
+.context-rail-search-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.context-rail-search-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.context-rail-search-input:focus-visible {
+  outline: none;
+}
+
+/* Fresh gateway session: the pane tree remounts to refetch the newest
+   page. A short settle fade keeps that remount from reading as a hard
+   flash (the remount itself is required — the store was reset). */
+@keyframes pane-settle {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.pane-split {
+  animation: pane-settle 160ms ease-out;
+}
+
+/* Col 3 wash: see --pane-wash. A background layer behind the pane's content,
+   running top-to-bottom THROUGH the channel header band. */
+.pane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--pane-wash);
+  z-index: 0;
+}
+
+.pane > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Member-list presence: a color dot instead of the word (the word stays
+   as sr-only text for screen readers; title carries a hover tooltip). */
+/* ---------------------------------------------------------------------------
+ * Composer (Discord-style row): ＋ actions left, editor center, GIF/emoji
+ * right; emoji picker popover above; :shortcode: autocomplete palette.
+ * ------------------------------------------------------------------ */
+
+.composer-row {
+  display: flex;
+  /* NOT centred: the controls belong to the first line of the message, not to
+     the middle of however tall it has grown (user direction 2026-09-12 —
+     measured: ＋ and emoji sat 29px below the well's top on one line and 51px
+     on two). Each cluster is pinned to the first-line band below. */
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+/* The ＋ menu and the emoji toggle: a first-line-tall box with its content
+   centred, so they read at exactly the same spot for one line and for many. */
+.composer-ctl,
+.composer-icons {
+  align-self: flex-start;
+  height: var(--shell-composer-line);
+  align-items: center;
+}
+
+/* The well's height is shared with the identity panel above the sidebar (see
+   --shell-composer-height); min-height keeps them equal if the inner editor's
+   own minimum ever changes. The well has NO FILL by owner direction
+   2026-09-14 — the 1px border stays (it marks the composer), the gray slab
+   behind it does not — so the panel's own box is what the shared height aligns
+   with on that side. */
+.composer-well {
+  min-height: var(--shell-composer-height);
+}
+
+.composer-icon-btn {
+  display: flex;
+  height: 40px;
+  min-width: 40px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: 20px;
+  transition: background var(--duration-control) ease, color var(--duration-control) ease,
+    scale 150ms ease-out;
+}
+
+.composer-icon-btn:active:not(:disabled) {
+  scale: 0.96;
+}
+
+.composer-icon-btn:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.composer-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.composer-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+.composer-gif {
+  border: 1px solid var(--color-line);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.composer-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+.composer-plus-menu {
+  /* Radix-positioned (DropdownMenuContent); relative keeps z-index live. */
+  position: relative;
+  z-index: 50;
+  min-width: 200px;
+  padding: 6px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.composer-plus-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  text-align: left;
+  transition: background var(--duration-control) ease;
+}
+
+.composer-plus-item:hover:not(:disabled):not([data-disabled]),
+.composer-plus-item[data-highlighted] {
+  background: var(--color-surface-hover);
+  outline: none;
+}
+
+.composer-plus-item:disabled,
+.composer-plus-item[data-disabled] {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* Emoji panel (Discord-style): search, frecents, grid, shortcode footer.
+   Popover tier (8px + --shadow-popover) since 2026-09-15: it is an anchored
+   popover like every menu, and 16px made it the only rounded outlier in the
+   family. */
+.emoji-panel {
+  display: flex;
+  max-height: 420px;
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.emoji-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 2px;
+  overflow-y: auto;
+  min-height: 120px;
+}
+
+.emoji-panel-section {
+  grid-column: 1 / -1;
+  padding: 4px 2px 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.emoji-panel-empty {
+  grid-column: 1 / -1;
+  padding: 16px 4px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.emoji-panel-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-line);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.emoji-panel-footer-emoji {
+  font-size: 18px;
+}
+
+.emoji-panel-footer-codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* The shared editor palettes' anchor (`@` / `#` / `:shortcode:`,
+   EditorPalettes.tsx). It FLOATS above its host box — the composer well, the
+   inline edit box — over the timeline, never in flow: in flow it grew the
+   composer and pushed the conversation up (owner report 2026-09-28). The same
+   placement the slash palette uses (CommandAutocomplete: bottom-full, mb-2).
+   z 30: above the timeline's own layers (row toolbars, jump pills), below
+   dialogs and sheets (z 50+). Height: capped with its own scroll; dvh follows
+   the on-screen keyboard (index.html: interactive-widget=resizes-content), so
+   on a phone the palette never climbs past the top of what is visible. */
+.editor-palettes {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  z-index: 30;
+}
+
+.editor-palettes > .emoji-autocomplete {
+  max-height: min(320px, 45dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The title stays put while the rows scroll under it. */
+.editor-palettes .emoji-autocomplete-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-popover);
+}
+
+/* Jump to latest (owner, 2026-10-01; MessageList.tsx). A round ↓ floating
+   over the timeline's bottom-right corner, above the composer — out of flow,
+   like .editor-palettes, so appearing never moves a row. Every visual value
+   is a token: the popover fill, edge and shadow (a 1px edge + soft lift in
+   Harmony, a hard offset in Pixel), the full radius (square in Pixel), the
+   house focus ring. The glyph is --color-text-primary on the popover fill:
+   ≥ 4.5:1 in every palette (palettes.test), well past the 3:1 non-text bar.
+   z 20: over rows and their toolbars, under the composer palettes (30),
+   banners (30) and dialogs. Hidden, it stays mounted (so it can animate
+   out) but takes no pointer, no focus and no a11y-tree slot. */
+.jump-latest {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--color-input-line);
+  border-radius: var(--radius-full);
+  background: var(--color-popover);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-popover);
+  cursor: pointer;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity 160ms var(--ease-out-expo),
+    transform 160ms var(--ease-out-expo),
+    background-color var(--duration-control) ease,
+    visibility 0s linear 0s;
+}
+
+.jump-latest:hover {
+  background: var(--color-surface-hover);
+}
+
+/* Pixel: the popover shadow already draws a 1px --tk-text ring (the pixel
+   recipe's edge, the toolbar's too); the border on top of it doubled it. */
+[data-style='pixel'] .jump-latest {
+  border-color: transparent;
+}
+
+.jump-latest:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.jump-latest[data-state='hidden'] {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(8px) scale(0.92);
+  transition:
+    opacity 160ms var(--ease-out-expo),
+    transform 160ms var(--ease-out-expo),
+    visibility 0s linear 160ms;
+}
+
+.jump-latest-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Sharing the corner with the composer's own floating UI. `~ *` scopes each
+   rule to THIS pane's composer (a thread dock beside the channel has its
+   own). The typing line (absolute, just above the well, a pill as wide as
+   its text) keeps out of the button's column while the button is up: long
+   names wrap before they reach it, so neither moves when typists come and
+   go. An open suggestion palette (@ # : or /) covers that corner, so the
+   button steps aside until it closes. */
+.timeline-region:has(.jump-latest[data-state='visible']) ~ * .typing-line {
+  padding-right: 72px;
+}
+
+.timeline-region:has(~ * .editor-palettes) .jump-latest,
+.timeline-region:has(~ * [data-testid='command-autocomplete']) .jump-latest {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* Phones: a 44px touch target, and the phone gutter's right inset. */
+@media (max-width: 767px) {
+  .jump-latest {
+    right: 12px;
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jump-latest,
+  .jump-latest[data-state='hidden'] {
+    transform: none;
+    transition: visibility 0s;
+  }
+}
+
+/* :shortcode: autocomplete palette above the composer. */
+.emoji-autocomplete {
+  margin-bottom: 8px;
+  overflow: hidden;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.emoji-autocomplete-title {
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.emoji-autocomplete-empty {
+  padding: 10px 12px 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.command-option-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mention-autocomplete-row-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.emoji-autocomplete-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  font-size: 14px;
+  color: var(--color-text);
+  text-align: left;
+  transition: background var(--duration-control) ease;
+}
+
+.emoji-autocomplete-option:hover,
+.emoji-autocomplete-option[aria-selected='true'] {
+  background: var(--color-surface-hover);
+}
+
+.emoji-autocomplete-char {
+  font-size: 18px;
+}
+
+/* `@`-mention typeahead (#66 follow-up) — the emoji palette's chrome with a
+   member row instead of an emoji row. */
+/* The channel palette's `#` tile (the member palette draws the shared
+   Avatar, 20px in the avatar scale). */
+.mention-autocomplete-glyph {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--color-surface-hover);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mention-autocomplete-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-autocomplete-username {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* A rendered mention inside the composer: the same pill the message list
+   paints, so what you type looks like what you will send. */
+.composer-mention {
+  cursor: default;
+}
+
+/* The Lexical decorator's host span takes no space of its own, so the pill
+   sits inline with the surrounding text. */
+.composer-mention-host {
+  display: inline;
+}
+
+/* Markdown while composing and editing (owner report 2026-09-28: a typed
+   `1. ` became a list whose marker never painted). Both editors carry the
+   timeline's own classes (editorConfig.ts: md-list, md-heading-N, md-quote,
+   code-block, inline-code, bold, italic, md-strike, md-underline, link), so
+   the rules above draw them; these only fit them to the composer's compact
+   rhythm. Headings stay distinguishable by size and weight, but modest. */
+.composer-md .md-heading {
+  margin: 2px 0;
+}
+
+.composer-md .md-heading-1 {
+  font-size: 1.25em;
+}
+
+.composer-md .md-heading-2 {
+  font-size: 1.15em;
+}
+
+.composer-md .md-heading-3 {
+  font-size: 1.06em;
+}
+
+.composer-md .md-quote,
+.composer-md .md-list,
+.composer-md .code-block {
+  margin: 2px 0;
+}
+
+/* Lexical's code block is a <code> element (the timeline's is a <pre>): make
+   it the same block panel, wrapping rather than scrolling while typing. */
+.composer-md .code-block {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.composer-md > :first-child {
+  margin-top: 0;
+}
+
+.composer-md > :last-child {
+  margin-bottom: 0;
+}
+
+/* A task item while composing: the timeline's ☐ / ☑ glyph in the marker
+   column instead of a bullet. The glyph sits inside the item's first 20px,
+   which is where Lexical's check-list plugin takes the click that toggles it. */
+.composer-md .md-check-item {
+  list-style: none;
+  position: relative;
+  margin-left: -20px;
+  padding-left: 20px;
+}
+
+.composer-md .md-check-item::before {
+  content: '☐';
+  position: absolute;
+  left: 2px;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+
+.composer-md .md-check-item-checked::before {
+  content: '☑';
+}
+
+/* The avatar IS the status trigger (Discord): clicking it opens the
+   presence picker; the panel carries no separate dot+word. */
+.user-panel-avatar-trigger {
+  display: flex;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.user-panel-avatar-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+.user-panel-action-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color var(--duration-control) ease, color var(--duration-control) ease,
+    scale 150ms ease-out;
+}
+
+.user-panel-action-btn:active {
+  scale: 0.96;
+}
+
+.user-panel-action-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.user-panel-action-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+/* Reaction chip hover tooltip: "who reacted" names above the chip. */
+.reaction-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 140px;
+  max-width: 240px;
+  padding: 8px 10px;
+  /* the .popover recipe (see below) */
+  background: var(--color-popover);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  pointer-events: none;
+}
+
+.reaction-tooltip-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.reaction-tooltip-name {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduce motion (settings → Appearance): the persisted per-browser
+ * preference sets <html data-reduce-motion>; under it, transitions and
+ * animations collapse to (near-)zero everywhere. The toggle lives in the
+ * settings surface; AppShell applies the stored flag at boot.
+ * ------------------------------------------------------------------------- */
+[data-reduce-motion] *,
+[data-reduce-motion] *::before,
+[data-reduce-motion] *::after {
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+/* Reaction/emoji picker: already-applied cells — dimmed, not selectable. */
+.emoji-cell-applied {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.emoji-cell-applied:hover {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+ * Video surfaces (calls V2 plan U5 — video.css section, shell-hosted).
+ *
+ * Tokens only, per the theme rules: every color/space/motion value resolves
+ * through the semantic layer; nothing here branches on theme. The geometry
+ * implements the ratified stage modes:
+ *   VM16 — no-share: the grid fills the panel; share-live: the stage
+ *          dominates, the grid demotes to a rail/strip; the stage carries a
+ *          fullscreen (enlarge) affordance.
+ *   VM19 — mobile (<768px) while a share is live: stage-fullscreen with the
+ *          grid collapsed to a thumbnail strip (this stylesheet's classes;
+ *          the composition unit applies them).
+ * ------------------------------------------------------------------ */
+
+/* The tile grid: auto-filling 16:9 cells (the .video-tile aspect). */
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+/* VM16's demoted rail / VM19's thumbnail strip: one horizontal band of
+   compact 16:9 thumbs (width-driven rows; scrollable when the roster
+   outgrows the rail). */
+.video-grid[data-variant='strip'] {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-rows: auto;
+  grid-auto-columns: 128px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-hover) transparent;
+}
+
+/* One participant tile — a real <button> (VM21: focusable, Enter enlarges). */
+.video-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow var(--duration-control) var(--shell-ease);
+}
+
+.video-tile:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+/* Current speaker: a presence-colored inset ring (the markup pairs it with
+   an icon + sr text — never color alone). */
+.video-tile[data-speaking] {
+  box-shadow: inset 0 0 0 2px var(--color-presence-online);
+}
+
+.video-tile[data-speaking]:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-presence-online),
+    0 0 0 2px var(--color-focus);
+}
+
+/* Compact thumbs (the strip/rail cells, the overlay self-view): the 16:9
+   tile geometry stands — width-driven, so both the fixed-column strip and
+   the auto-sized overlay wrapper size correctly. */
+.video-tile.video-tile-compact {
+  border-radius: var(--radius-sm);
+}
+
+/* VM15: self-view is the ONLY mirrored surface. */
+.video-mirrored video {
+  transform: scaleX(-1);
+}
+
+/* Loading skeleton: a slow surface shimmer (opacity only; reduced motion
+   collapses it to a flat fill). */
+.video-skeleton {
+  background: var(--color-surface-hover);
+  animation: video-skeleton-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes video-skeleton-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-skeleton {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* The screenshare stage: video surface + presenter bar column. */
+.video-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  overflow: hidden;
+}
+
+.video-stage-surface {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--color-background);
+}
+
+/* Screens are DETAIL content (VM12) — contain, never cover-crop. */
+.video-stage-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* VM16 fullscreen (the enlarge affordance's geometry): the stage expands to
+   the viewport above the call surfaces. Mobile promotes the same class to
+   VM19's stage-fullscreen below. */
+.video-stage.video-stage-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  border-radius: 0;
+}
+
+/* VM15: the self-view's demoted corner geometry while the stage dominates.
+   The composition anchors this inside the stage surface. */
+.self-view-overlay {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 10;
+  width: 160px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.4);
+  overflow: hidden;
+}
+
+.self-view-tile {
+  width: 100%;
+}
+
+/* The VM10 visible-disabled affordance: reads disabled (muted, half
+   contrast) yet stays a real interactive button whose action is the
+   explanation dialog. */
+.capability-disabled-btn {
+  opacity: 0.55;
+}
+
+.capability-disabled-btn:hover {
+  background: var(--color-surface-hover);
+  opacity: 0.8;
+}
+
+/* VM19 — mobile (<768px) share-live composition: the stage goes
+   stage-fullscreen and the grid is the thumbnail strip (the wiring unit
+   applies .video-stage-fullscreen + data-variant='strip'). */
+@media (max-width: 767px) {
+  .video-grid[data-variant='strip'] {
+    grid-auto-columns: 96px;
+    gap: 6px;
+  }
+
+  .video-stage.video-stage-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 55; /* above the mobile call sheet (z 50) */
+    border-radius: 0;
+  }
+
+  .self-view-overlay {
+    width: 104px;
+    right: 8px;
+    top: 8px;
+  }
+}
+
+/* Thread indicator on the seed message (2026-09-10): the return path to a
+   thread after the dock is closed — icon, name, reply count, last activity. */
+.thread-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 14px;
+  color: var(--color-text-primary);
+  text-align: left;
+  transition: background var(--duration-control) ease, border-color var(--duration-control) ease,
+    scale 150ms ease-out;
+}
+
+.thread-indicator:active {
+  scale: 0.96;
+}
+
+/* The count and its chevron carry the affordance in the accent color
+   (Discord's "N Messages ›"): a muted gray chip under a long message read as
+   part of the message rather than a way into a conversation (2026-09-12). */
+.thread-indicator-count {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.thread-indicator-chevron {
+  flex-shrink: 0;
+  margin-left: -3px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.thread-indicator:hover .thread-indicator-count,
+.thread-indicator:hover .thread-indicator-chevron {
+  color: var(--color-accent-hover);
+}
+
+.thread-indicator:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-input-line);
+  color: var(--color-text-primary);
+}
+
+.thread-indicator:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+/* The thread's name IS the seed message's own words, so it stays secondary
+   to the count — never competing with the message above it. */
+.thread-indicator-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.thread-indicator-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* Inline message editing (2026-09-10): the row becomes the editor — a
+   composer-shaped box with the same chrome as the message well. */
+/* The edit box is the composer's twin (UI consistency, 2026-09-27): the
+   composer well's radius (rounded-xl → --radius-xl) and its 16px/22px text,
+   so an edit does not visibly shrink and square off the message being
+   edited. It used to be radius-md at 15px. */
+.inline-edit {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-input-line);
+  border-radius: var(--radius-xl, 0.75rem);
+  background: var(--color-input);
+}
+
+.inline-edit:focus-within {
+  border-color: var(--color-accent);
+}
+
+/* The palettes float above the edit box, anchored like the composer's. */
+.inline-edit-input {
+  min-height: 44px;
+  outline: none;
+  color: var(--color-text);
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.inline-edit-placeholder {
+  pointer-events: none;
+  position: absolute;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.inline-edit-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-danger);
+}
+
+.inline-edit-retry {
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.inline-edit-retry:hover {
+  background: var(--color-surface-hover);
+}
+
+.inline-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* #151 — PIXEL chrome accents (the identity itself is token-level in
+   tokens.css: palette, 0 radii, mono type, hard shadows). These few rules
+   add the Starbase mockup's tactile details on top; every one is scoped to
+   [data-style='pixel'] so Harmony is untouched. The mockup's inverted rail
+   is deliberately NOT here — inverting one column's palette breaks the
+   single-token text contract; a follow-up can add it as slot-level chrome. */
+[data-style='pixel'] .sidebar {
+  /* The mockup's dithered edge texture — depth without gradients. */
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(36 33 26 / 0.05) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+[data-style='pixel'] .modal-input {
+  /* Sunken field wells (inset hard shadow, the mockup's .field). */
+  box-shadow: inset 2px 2px 0 var(--tk-border);
+}
+
+[data-style='pixel'] .modal-btn-primary:active,
+[data-style='pixel'] .modal-btn-secondary:active {
+  /* The mockup's press feedback: the button nudges into its shadow. */
+  transform: translate(1px, 1px);
+}
+
+/* ONE popover recipe (UI consistency, 2026-09-27). Every anchored floating
+   surface — menus, pickers, palettes, tooltips, the hover toolbar — takes the
+   same three tokens: the popover fill (`--color-popover`, the surface-strong
+   step), the popover radius (radius-md) and the popover elevation
+   (`--shadow-popover`, which the pixel style swaps for its hard offset
+   shadow). Before this, the slash palette sat on surface-strong/rounded-lg/
+   shadow-lg while the mention/emoji/channel palettes used surface-emphasized/
+   radius-md/--shadow-popover, and shadow-lg ignored the pixel theme entirely.
+   Selectors above that predate the class restate the same three values;
+   components use the class. */
+.popover {
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+/* A divider INSIDE a popover (the hover toolbar's reactions | actions rule,
+   menu separators): a text-derived hairline, so it reads on the dark plate
+   AND on the light theme's white one (`bg-white/20` vanished on white). */
+.popover-divider {
+  background: var(--color-separator);
+}
+
+/* ONE keyboard focus ring (UI consistency pass 2026-09-28): the 2px
+   --color-focus ring the channel header, panes and composer controls already
+   draw. These controls had no :focus-visible rule at all, so the browser's
+   own outline showed on them — a different colour, offset and shape from
+   every neighbour. The reply bar's ✕ and the profile ✕ drew only a hover fill
+   on focus; they take the ring too. */
+:is(
+    .home-btn,
+    .modal-close,
+    .modal-btn-primary,
+    .modal-btn-secondary,
+    .modal-btn-danger,
+    .dm-add,
+    .home-add,
+    .server-action,
+    .catchup-channel,
+    .member-profile-close,
+    .reply-bar-cancel,
+    .reply-bar-ping,
+    .update-available-btn
+  ):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
