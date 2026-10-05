@@ -39,7 +39,7 @@ jobs:
             image: hrmny-ssh-host
             dockerfile: Dockerfile.ssh-host
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Image name
         id: name
         run: echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
