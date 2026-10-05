@@ -64,7 +64,7 @@ RUN pnpm --filter @cytale/web run build
 # ---------------------------------------------------------------------------
 # Debian bookworm base (verified: /etc/os-release → Debian 12), matching the
 # bookworm-slim runtime stage so the bundled ERTS binaries run unchanged.
-FROM elixir:1.18.4-otp-27 AS releasebuild
+FROM elixir:1.20.3-otp-29 AS releasebuild
 
 ENV MIX_ENV=prod
 
