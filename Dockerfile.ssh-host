@@ -28,7 +28,7 @@
 # repo's own runner (`apps/tui/package.json` → "start": "tsx src/client.ts"),
 # which keeps the deployed client the same program the suite tests: there is no
 # build step to diverge from.
-FROM node:22-bookworm-slim AS clientbuild
+FROM node:26-bookworm-slim AS clientbuild
 
 # pnpm blocks on an interactive prompt when it thinks it is on a TTY
 # (/dev/console never EOFs) — the same CI=true the workflows set for it.

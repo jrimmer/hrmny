@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1 — webbuild
 # ---------------------------------------------------------------------------
-FROM node:22-bookworm-slim AS webbuild
+FROM node:26-bookworm-slim AS webbuild
 ENV CI=1
 RUN corepack enable
 WORKDIR /repo
