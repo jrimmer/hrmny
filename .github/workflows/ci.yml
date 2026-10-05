@@ -82,7 +82,7 @@ jobs:
         working-directory: apps/server
         run: mix format --check-formatted
       - name: Deps cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             apps/server/deps
