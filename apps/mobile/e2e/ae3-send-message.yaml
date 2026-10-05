@@ -1,0 +1,67 @@
+# AE3 — send a message from a channel and see it land.
+#
+# Same prerequisites as ae1 (build pointed at a server + CYTALE_PASSWORD).
+appId: chat.hrmny
+name: "AE3 — send a message"
+---
+- launchApp:
+    clearState: true
+
+- tapOn:
+    text: "Cancel"
+    optional: true
+
+# Let the cold-launch restore settle before deciding whether the gate asks for
+# credentials — otherwise the check races the splash and skips sign-in.
+- waitForAnimationToEnd:
+    timeout: 15000
+
+# Keychain entries survive clearState: sign in only when the gate asks.
+- runFlow:
+    when:
+      visible:
+        id: "surface-sign-in"
+    commands:
+      - tapOn:
+          id: "sign-in-identifier"
+      - inputText: "jordan"
+      - tapOn:
+          id: "sign-in-password"
+      - inputText: "${CYTALE_PASSWORD}"
+      - hideKeyboard
+      - tapOn:
+          id: "sign-in-submit"
+      - tapOn:
+          text: "Not Now"
+          optional: true
+
+- extendedWaitUntil:
+    visible:
+      id: "surface-home"
+    timeout: 30000
+
+- tapOn:
+    id: "title-bar-drawer"
+- tapOn: "Playground"
+- tapOn: "general"
+- extendedWaitUntil:
+    visible:
+      id: "composer-input"
+    timeout: 20000
+
+- tapOn:
+    id: "composer-input"
+- inputText: "maestro e2e probe"
+# Isolate composer-focus failures from send failures: the text must be in the
+# input before the send control can be enabled.
+- extendedWaitUntil:
+    visible: "maestro e2e probe"
+    timeout: 8000
+- tapOn:
+    id: "composer-send"
+# Gate on the composer CLEARING, not on the text still being visible: the
+# composer deliberately keeps the draft when a send fails, so asserting the
+# typed text passed even while send was broken (review finding #1).
+- extendedWaitUntil:
+    notVisible: "maestro e2e probe"
+    timeout: 20000

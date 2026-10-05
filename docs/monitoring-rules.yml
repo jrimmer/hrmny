@@ -1,0 +1,144 @@
+# Reference alert rules for Cytale — copy-paste, then TUNE.
+#
+# These are starting points, not truths: the numbers are what this app was
+# budgeted around, not what was measured on your box. Read docs/monitoring.md
+# for what each signal means and, more importantly, for the three things this
+# file cannot do — probe off-box, alert over the dying host, or know your
+# numbers.
+#
+# Assumes:
+#   * `blackbox`   — blackbox_exporter probing https://<host>/health/ready and
+#                    the TLS certificate (needs `blackbox` scrape config).
+#   * `node`       — node_exporter on the host, and its filesystem collector
+#                    seeing the ScyllaDB volume.
+#   * `cytale`     — the app's own /metrics (see docs/monitoring.md §scrape).
+
+groups:
+  - name: cytale-availability
+    rules:
+      # The readiness probe is the ONLY app-side uptime signal worth paging on:
+      # /health answers 200 with the database gone, so alerting on it would be
+      # worse than nothing.
+      - alert: CytaleNotReady
+        expr: probe_success{job="blackbox", instance=~".*/health/ready"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Cytale is not ready ({{ $labels.instance }})"
+          description: "Readiness has failed for 2m. The body names the failing dependency (503 means up-but-degraded, no response means down)."
+
+      # Catches the box being gone even when DNS or the proxy answers for it.
+      - alert: CytaleHealthProbeSlow
+        expr: probe_duration_seconds{job="blackbox", instance=~".*/health/ready"} > 2
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Readiness probe slower than 2s for 10m"
+          description: "Not down, but a member's first byte is. Check the database before the app."
+
+  - name: cytale-capacity
+    rules:
+      # Warn early enough to act in business hours; page before writes fail.
+      - alert: DiskFilling
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.25
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Disk 75% full on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+
+      - alert: DiskNearlyFull
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.10
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Disk 90% full on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "ScyllaDB stops accepting writes before the disk is literally full."
+
+      # A ScyllaDB volume that stops growing for a day is usually a broken
+      # backup or a wedged compaction, not good news.
+      - alert: ScyllaVolumeNotGrowing
+        expr: deriv(node_filesystem_avail_bytes{mountpoint=~".*scylla.*"}[6h]) == 0
+        for: 24h
+        labels:
+          severity: warn
+        annotations:
+          summary: "ScyllaDB volume unchanged for 24h"
+
+  - name: cytale-certificates
+    rules:
+      # 21 days is deliberately long: renewing is cheap, an expired cert takes
+      # every client (including the desktop shell's baked origin) down at once.
+      - alert: CertificateExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 21 * 24 * 3600
+        for: 1h
+        labels:
+          severity: warn
+        annotations:
+          summary: "TLS certificate for {{ $labels.instance }} expires in under 21 days"
+
+      - alert: CertificateExpiring
+        expr: probe_ssl_earliest_cert_expiry - time() < 7 * 24 * 3600
+        for: 1h
+        labels:
+          severity: page
+        annotations:
+          summary: "TLS certificate for {{ $labels.instance }} expires in under 7 days"
+
+  - name: cytale-latency
+    rules:
+      # The app's own budget for fan-out dispatch. p99 is the number to watch:
+      # mean hides the tail that members actually feel.
+      - alert: FanoutP99High
+        expr: cytale_fanout_dispatch_ms{stat="p99"} > 250
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Fan-out p99 above 250ms for 10m"
+          description: "Publishes are queueing. Check for a hot workspace or a starved scheduler before the tail becomes drops."
+
+      # A metric that stops being reported at all is a silent failure: this
+      # fires when the app is up but its instrumentation has gone quiet.
+      - alert: FanoutMetricMissing
+        expr: absent(cytale_fanout_dispatch_ms{stat="samples"})
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Fan-out metrics are absent"
+          description: "Either nothing has published for 15m (unlikely) or the scrape/exposition is broken. Verify /metrics by hand."
+
+  - name: cytale-backups
+    rules:
+      # A backup run FAILED. The scheduler retries on its next due tick,
+      # so one failure with a fresh success after it is a warn, not a page —
+      # but a failure here is never noise: every run is a full walk.
+      - alert: CytaleBackupFailed
+        expr: increase(cytale_backups_total{result="failure"}[30m]) > 0
+        labels:
+          severity: warn
+        annotations:
+          summary: "A Cytale server backup failed"
+          description: "The backup job's last run failed. The app log names the reason; the failure counter is on /metrics."
+
+      # No SUCCESSFUL backup inside the plan's frequency + slack. The
+      # threshold below suits an hourly or daily plan (for example:
+      # an hourly plan silent for 25h is a DEAD scheduler, not a quiet one).
+      # A WEEKLY plan needs its own threshold (~8d) — tune to your
+      # backups.frequency before trusting this rule.
+      - alert: CytaleBackupStale
+        expr: time() - cytale_backup_last_success_timestamp_seconds > 25 * 3600
+        for: 1h
+        labels:
+          severity: page
+        annotations:
+          summary: "Cytale has not completed a backup in over a day"
+          description: "cytale_backup_last_success_timestamp_seconds is stale: either the scheduler is dead, the disk is full, or every run is failing. A value of 0 means NO backup has ever succeeded."

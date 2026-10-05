@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Hrmny">
+  <title>Hrmny</title>
+  <!--
+    The Hrmny mark — the SOURCE for every raster in this directory and for the
+    clients' app icons. Monogram-led on purpose: the mark it replaces was also a
+    single letter, and a monogram is the one shape that survives 16px in a
+    favicon and full-bleed in a launcher.
+
+    Field: tokens.css `--tk-action` (#5865F2) — the same blue the app's primary
+    button uses, so the icon and the product are the same colour. The corner
+    radius (22.5%) is the squircle-ish ratio the generated PNGs use.
+
+    Regenerate the PNGs from here rather than redrawing them:
+      apps/web/public/icons/icon-192.png, icon-512.png, maskable-512.png
+      apps/mobile/assets/{icon,splash-icon,android-icon-*}.png
+      apps/desktop/src-tauri/icons/*.png|icns|ico
+    Maskable/splash variants use a FULL-BLEED field with the glyph inside the
+    centre 80% safe zone, so a platform mask crops the field and never the H.
+  -->
+  <rect width="512" height="512" rx="115" fill="#5865F2"/>
+  <g fill="#FFFFFF">
+    <rect x="148" y="123" width="52" height="266"/>
+    <rect x="312" y="123" width="52" height="266"/>
+    <rect x="148" y="240" width="216" height="32"/>
+  </g>
+</svg>

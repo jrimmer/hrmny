@@ -1,0 +1,49 @@
+# Keep the build context minimal + deterministic (only what the stages COPY).
+# Mirrors .gitignore plus build outputs regenerated inside the image.
+
+# VCS / agent context
+.git
+.turbo
+
+# Node
+**/node_modules
+coverage
+apps/web/dist
+apps/web/e2e
+apps/web/test-results
+apps/web/playwright-report
+
+# Elixir
+apps/server/_build
+apps/server/deps
+apps/server/tmp
+apps/server/erl_crash.dump
+apps/server/priv/static
+apps/server/priv/search
+apps/server/priv/attachments
+
+# Rust
+target
+
+# Secrets never enter the image
+.env
+.env.*
+!.env.example
+
+# SSH CA key material (U1): the certificate authority's signing key is mounted
+# at runtime at the path CYTALE_SSH_CA_KEY_PATH names, and must never be baked
+# into a published layer. These patterns cover the conventional provisioning
+# locations and the OpenSSH private-key basename, so a key staged into the tree
+# for a local run is not copied by `docker build`.
+ssh/ca/**
+deploy/ssh/**
+**/id_ed25519
+
+# Third-party reference material (repo policy: never leaves the machine)
+docs/research
+docs/plans
+
+# OS / scratch noise
+.DS_Store
+*.dump
+*.crash

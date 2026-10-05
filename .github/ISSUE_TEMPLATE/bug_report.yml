@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in Hrmny does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Security problems go through a private advisory instead (see SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. See …
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Web app (browser / PWA)
+        - Desktop app
+        - Mobile app
+        - Terminal client / SSH host
+        - Server / self-hosting
+        - Bot API (Discord-compatible)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The version badge in the app (or the image tag / commit you run).
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser / OS / device, and how the server is deployed if relevant.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Redact anything private. Screenshots of your own Hrmny instance only.

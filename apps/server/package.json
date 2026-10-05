@@ -1,0 +1,8 @@
+{
+  "name": "@cytale/server",
+  "license": "BSD-3-Clause",
+  "private": true,
+  "scripts": {
+    "test": "cd .. && cd server && mix test"
+  }
+}

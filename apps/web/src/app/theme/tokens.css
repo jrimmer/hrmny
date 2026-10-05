@@ -1,0 +1,430 @@
+@import "tailwindcss";
+@import "tw-animate-css"; /* #150: the open/close animations shadcn dialogs/menus use */
+
+/*
+ * @cytale/web — Tailwind v4 `@theme` bridge (U18).
+ *
+ * Exposes the semantic token layer (semantic.ts) as CSS variables and Tailwind
+ * utilities. Tailwind v4 reads `@theme` blocks at build time via the Vite
+ * plugin; semantic values are injected as `--color-*`, `--spacing-*`,
+ * `--radius-*`, `--font-*` variables so utilities like `bg-surface`,
+ * `text-muted`, `rounded-md` resolve to our tokens — never to Tailwind's
+ * stock palette.
+ *
+ * The DOM contract: `Theme.tsx` sets `data-theme` on the shell root; the
+ * `:root[data-theme='...']` blocks below swap the SEMANTIC variable values
+ * only. Primitives never change per theme.
+ *
+ * NOTE: values are duplicated from semantic.ts by a build-time-checked
+ * convention (single source lives in tokens.css for CSS-side injection and in
+ * semantic.ts for TS-side consumption; the test suite asserts the two stay in
+ * lockstep for the key surfaces so drift fails CI).
+ */
+
+@theme {
+  --font-sans: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  --font-mono: 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+
+  /* type ramp */
+  --text-xs: 12px; /* metadata, timestamps */
+  --text-sm: 13px; /* secondary */
+  --text-md: 14px; /* section labels */
+  --text-lg: 16px; /* body */
+  --text-xl: 18px; /* headers */
+
+  /* radii */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-pane: 240ms;
+  --duration-control: 120ms;
+
+  /* semantic aliases (default = dark). Utilities: bg-background, bg-surface,
+     bg-surface-emphasized, bg-surface-strong, bg-surface-selected,
+     bg-surface-hover, text-content, text-top, text-muted, border-line,
+     bg-input, border-input-line, bg-action, text-on_action,
+     ring-focus, presence/status colors, overlay dimming via bg-scrim. */
+  --color-background: var(--tk-background);
+  --color-surface: var(--tk-surface);
+  --color-surface-emphasized: var(--tk-surface-emphasized);
+  --color-surface-strong: var(--tk-surface-strong);
+  --color-surface-selected: var(--tk-surface-selected);
+  --color-surface-hover: var(--tk-surface-hover);
+  --color-surface-hover-quiet: var(--tk-surface-hover-quiet);
+  --color-content: var(--tk-text);
+  --color-top: var(--tk-text-top);
+  --color-muted: var(--tk-text-muted);
+  --color-line: var(--tk-border);
+  --color-input: var(--tk-input);
+  --color-input-line: var(--tk-input-border);
+  --color-action: var(--tk-action);
+  --color-action-hover: var(--tk-action-hover);
+  --color-on-action: var(--tk-on-action);
+  /* highlight: the rail Home hover (2026-09-18) — a deep step of the logo
+     mark's dominant cyan (#00e0e0 ramp), darkened so white passes AA 4.5:1
+     where the blurple action color used to sit. Deliberately NOT amber
+     (warning/idle) or green (success/online). */
+  --color-highlight: var(--tk-highlight);
+  --color-focus: var(--tk-focus-ring);
+  --color-presence-online: var(--tk-presence-online);
+  --color-presence-idle: var(--tk-presence-idle);
+  --color-presence-dnd: var(--tk-presence-dnd);
+  --color-presence-offline: var(--tk-presence-offline);
+  --color-success: var(--tk-success);
+  --color-warning: var(--tk-warning);
+  /* on-warning: text on a warning FILL (the shell's offline bar) — near-black
+     on the dark amber, light on the darkened light-theme ambers. */
+  --color-on-warning: var(--tk-on-warning);
+  --color-danger: var(--tk-danger);
+  /* scrim: overlay/dialog dimming (bg-scrim) — same intensity as the
+     shell's drawer scrim, so every overlay dims through one token instead
+     of raw bg-black/nn values. */
+  --color-scrim: var(--tk-scrim);
+  /* Column-separation tokens (UI consistency pass 2026-09-15):
+     regions separate by TONE STEPS, not lines — the rail sits one step
+     deeper than `background`, and docks (thread/call) read as sunken into
+     the pane through a darker-than-everything inset seam. */
+  --color-background-deep: var(--tk-background-deep);
+  --color-line-inset: var(--tk-line-inset);
+  /* separator: a hairline INSIDE a floating surface (popover/toolbar
+     dividers) — derived from the theme's own text color so it reads on the
+     dark plate and the light one alike. */
+  --color-separator: color-mix(in oklab, var(--tk-text) 24%, transparent);
+
+  /* Elevation (UI consistency pass 2026-09-15): floating surfaces get their
+     edge from a 1px WHITE ring baked into the shadow (dark-mode elevation
+     border — a `--color-line` border is invisible on surface and a gray
+     outline is a second, competing elevation signal). Popovers/menus/tooltips
+     take the popover step; centered modals the heavier modal step. */
+  --shadow-popover:
+    0 0 0 1px oklch(1 0 0 / 0.08),
+    0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-modal:
+    0 0 0 1px oklch(1 0 0 / 0.08),
+    0 16px 48px rgb(0 0 0 / 0.5);
+  /* Edge-docked surfaces — a bottom sheet (call/thread/actions) and the two
+     side drawers — cast one soft shadow AWAY from the edge they dock to. The
+     shade is per-theme (--tk-shade): the dark themes' 35% black read as a
+     smudge on the light pages. */
+  --shadow-sheet: 0 -4px 24px var(--tk-shade);
+  --shadow-drawer-start: 4px 0 24px var(--tk-shade);
+  --shadow-drawer-end: -4px 0 24px var(--tk-shade);
+
+  /* ------------------------------------------------------------------
+   * Component-facing canonical names (UI-polish slice 1).
+   *
+   * The first feature units adopted these spellings (text-text-muted,
+   * text-text-primary, bg-accent, border-border, ...) but the original
+   * bridge above exposed different names (text-muted, bg-action,
+   * border-line, ...), so those utilities silently generated NO CSS.
+   * These entries make every component-facing class live without touching
+   * a single component. Both families now resolve; the original names are
+   * kept as working aliases (do not remove — existing styles depend on
+   * them).
+   * ------------------------------------------------------------------ */
+  /* text: text-text, text-text-primary, text-text-muted */
+  --color-text: var(--tk-text);
+  --color-text-primary: var(--tk-text-top);
+  --color-text-muted: var(--tk-text-muted);
+  /* accent: bg-accent, text-accent, text-accent-500 (shared value:
+     accent-500 == the blurple ramp step components reference) */
+  --color-accent: var(--tk-action);
+  --color-accent-hover: var(--tk-action-hover);
+  --color-accent-500: var(--tk-action);
+  /* on-accent: text-text-onaccent / text-onaccent */
+  --color-onaccent: var(--tk-on-action);
+  --color-text-onaccent: var(--tk-on-action);
+  /* borders: border-border, border-border-strong */
+  --color-border: var(--tk-border);
+  --color-border-strong: var(--tk-input-border);
+
+  /* ------------------------------------------------------------------
+   * shadcn/ui variable conventions, mapped onto our primitives (#150).
+   *
+   * Migrated components read `--background`, `--foreground`, etc. — the
+   * names shadcn's theming docs standardize on. They are ALIASES here, not
+   * a second palette: every one resolves to the same `--tk-*` primitive the
+   * rest of the app reads, so tokens.css stays the single source of truth
+   * and #151's theme blocks swap values in exactly one place. shadcn's
+   * `dark` class strategy is honoured (`:root.dark`) so upstream components
+   * that branch on it behave; our data-theme attribute remains the native
+   * switch. HSL-channel decomposition is deliberately NOT used — our
+   * primitives are hex/oklch and stay so.
+   * ------------------------------------------------------------------ */
+  --color-background: var(--tk-background);
+  --color-foreground: var(--tk-text);
+  --color-card: var(--tk-surface-strong);
+  --color-card-foreground: var(--tk-text);
+  --color-popover: var(--tk-surface-strong);
+  --color-popover-foreground: var(--tk-text);
+  --color-primary: var(--tk-action);
+  --color-primary-foreground: var(--tk-on-action);
+  --color-secondary: var(--tk-surface-selected);
+  --color-secondary-foreground: var(--tk-text);
+  --color-muted-block: var(--tk-surface-hover);
+  --color-muted-foreground: var(--tk-text-muted);
+  --color-accent-block: var(--tk-surface-hover);
+  --color-accent-foreground: var(--tk-text-top);
+  --color-destructive: var(--tk-danger);
+  --color-destructive-foreground: var(--tk-text-top);
+  --color-ring: var(--tk-focus-ring);
+  --color-input-border-shadcn: var(--tk-input-border);
+}
+
+/* dark is the DEFAULT (no data-theme also resolves dark) */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --tk-background: #131416;
+  /* The left cluster's own chrome — rail AND channel sidebar share this
+     deepest tone (owner direction 2026-09-22: col 1 and col 2 read as one
+     black column stack; popovers stay on surface-strong, deeper still). */
+  --tk-background-deep: #0e0e11;
+  --tk-surface: #2e2e34;
+  --tk-surface-emphasized: #1a1a1e;
+  --tk-surface-strong: #070709;
+  --tk-surface-selected: #35373c;
+  --tk-surface-hover: #2e3035;
+  /* A hover for rows that ALSO carry a selected state. The shared hover above
+     sits 7/255 under the selected pill — measured indistinguishable on a dark
+     pane (user report 2026-09-13: a hovered channel read the same as the
+     active one). This one lands halfway between the sidebar background and the
+     selected pill, so a hovered row is visibly darker than the active row. */
+  --tk-surface-hover-quiet: #24262a;
+
+  --tk-text: #dbdee1;
+  --tk-text-top: #f2f3f5;
+  --tk-text-muted: #949ba4;
+
+  --tk-border: #2e2e34;
+  /* The dock seam: darker than every surface it can sit between, so a thread
+     or call dock reads as sunken INTO the pane. Replaces the raw
+     --shell-thread-border (#111216, corpus-measured) — same value, now a
+     first-class token used by BOTH docks. */
+  --tk-line-inset: #111216;
+  --tk-input: #070709;
+  --tk-input-border: #5c5e66;
+
+  --tk-action: #5865f2;
+  --tk-action-hover: #4752c4;
+  --tk-on-action: #ffffff;
+  --tk-focus-ring: #8ea1ff;
+  --tk-highlight: #00808c;
+
+  --tk-presence-online: #23a55a;
+  --tk-presence-idle: #f0b232;
+  --tk-presence-dnd: #f23f43;
+  --tk-presence-offline: #80848e;
+  --tk-success: #23a55a;
+  --tk-warning: #f0b232;
+  --tk-on-warning: #131416;
+  --tk-danger: #f23f43;
+  --tk-scrim: rgb(0 0 0 / 0.6);
+  --tk-shade: rgb(0 0 0 / 0.35);
+}
+
+/* #151 — HARMONY LIGHT: the house design language rendered light.
+   Every pair AA-audited (scripts/aa_audit.py lineage; enforced in
+   palettes.test.ts): muted #5c5e66 (6.5:1 on white), status tones darkened
+   to pass as text, input borders at ≥3:1 as functional UI boundaries.
+   The blurple action steps DOWN a shade (#4752c4, the dark theme's hover
+   step) so white-on-action clears 4.5:1 on a white page. */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --tk-background: #ffffff;
+  --tk-background-deep: #e7e8ec;
+  --tk-surface: #f4f5f7;
+  --tk-surface-emphasized: #fafbfc;
+  --tk-surface-strong: #ffffff;
+  --tk-surface-selected: #e4e6ea;
+  --tk-surface-hover: #eceef0;
+  --tk-surface-hover-quiet: #e9ebee;
+
+  --tk-text: #2e3338;
+  --tk-text-top: #060607;
+  --tk-text-muted: #5c5e66;
+
+  --tk-border: #dcdee2;
+  --tk-line-inset: #e3e5e9;
+  --tk-input: #f4f5f7;
+  --tk-input-border: #7e848e;
+
+  --tk-action: #4752c4;
+  --tk-action-hover: #3c45a5;
+  --tk-on-action: #ffffff;
+  --tk-focus-ring: #5865f2;
+  --tk-highlight: #00808c;
+
+  --tk-presence-online: #1a7f42;
+  --tk-presence-idle: #8a6800;
+  --tk-presence-dnd: #cc3437;
+  --tk-presence-offline: #6a6e78;
+  --tk-success: #1a7f42;
+  --tk-warning: #8a6800;
+  --tk-on-warning: #ffffff;
+  --tk-danger: #cc3437;
+  --tk-scrim: rgb(20 22 30 / 0.45);
+  --tk-shade: rgb(20 22 30 / 0.16);
+}
+
+/* #151 — PIXEL: the fully-implemented Starbase theme (owner direction
+   2026-09-24: "not a pixelized shadcn" — its own palette AND chrome), in
+   both modes. Chrome lives in the shared [data-style='pixel'] block below;
+   these two blocks carry each mode's Starbase palette. Values come from
+   docs/research/mockups/2026-09-23-starbase.html (light = the mockup
+   verbatim, muted/status darkened only where AA demands) with the dark
+   counterpart derived as a warm CRT terminal. AA-audited; enforced in
+   palettes.test.ts. */
+:root[data-style='pixel'][data-theme='dark'],
+:root[data-style='pixel']:not([data-theme]) {
+  color-scheme: dark;
+
+  --tk-background: #171610;
+  --tk-background-deep: #100f0b;
+  --tk-surface: #211f16;
+  --tk-surface-emphasized: #1c1a12;
+  --tk-surface-strong: #262218;
+  --tk-surface-selected: #2c2a1e;
+  --tk-surface-hover: #28261b;
+  --tk-surface-hover-quiet: #232117;
+
+  --tk-text: #d8d2bd;
+  --tk-text-top: #e9e3cf;
+  --tk-text-muted: #97907a;
+
+  --tk-border: #3c392c;
+  --tk-line-inset: #0e0d09;
+  --tk-input: #100f0b;
+  --tk-input-border: #8f886f;
+
+  /* CRT action: the bright green carries INK text (near-black on green,
+     6.8:1) — terminal-authentic and AA-clear where paper-on-green was not. */
+  --tk-action: #57b06a;
+  --tk-action-hover: #4a9d5c;
+  --tk-on-action: #17160f;
+  --tk-focus-ring: #63bd75;
+  --tk-highlight: #57b06a;
+
+  --tk-presence-online: #63bd75;
+  --tk-presence-idle: #cf943f;
+  --tk-presence-dnd: #e06060;
+  --tk-presence-offline: #97907a;
+  --tk-success: #63bd75;
+  --tk-warning: #cf943f;
+  --tk-on-warning: #17160f;
+  --tk-danger: #e06060;
+  --tk-scrim: rgb(0 0 0 / 0.55);
+  --tk-shade: rgb(0 0 0 / 0.35);
+}
+
+:root[data-style='pixel'][data-theme='light'] {
+  color-scheme: light;
+
+  --tk-background: #d8d2bd;
+  --tk-background-deep: #e9e3cf;
+  --tk-surface: #e9e3cf;
+  --tk-surface-emphasized: #e0dac6;
+  --tk-surface-strong: #e9e3cf;
+  --tk-surface-selected: #d8d2bd;
+  --tk-surface-hover: #ddd7c3;
+  --tk-surface-hover-quiet: #e1dbc8;
+
+  --tk-text: #24211a;
+  --tk-text-top: #1b1812;
+  --tk-text-muted: #5d563f;
+
+  --tk-border: #a49b7e;
+  --tk-line-inset: #cfc8ae;
+  --tk-input: #e9e3cf;
+  /* Fields wear the mockup's INK border (1px, hard) — the strongest UI
+     boundary signal in the language, and far past 3:1. */
+  --tk-input-border: #24211a;
+
+  --tk-action: #2e6b3a;
+  --tk-action-hover: #265c34;
+  --tk-on-action: #e9e3cf;
+  --tk-focus-ring: #2e6b3a;
+  --tk-highlight: #2e6b3a;
+
+  --tk-presence-online: #265c34;
+  --tk-presence-idle: #7c4f15;
+  --tk-presence-dnd: #8e2f2f;
+  --tk-presence-offline: #5d563f;
+  --tk-success: #265c34;
+  --tk-warning: #7c4f15;
+  --tk-on-warning: #e9e3cf;
+  --tk-danger: #8e2f2f;
+  --tk-scrim: rgb(36 33 26 / 0.45);
+  --tk-shade: rgb(36 33 26 / 0.3);
+}
+
+/* #151 — PIXEL CHROME (shared by both pixel palettes; mode-independent):
+   square corners, system-monospace type, hard offset shadows (no blur),
+   inset field wells. Attribute-scoped (not :root-anchored) so any subtree
+   may carry data-style='harmony' to opt back into the smooth chrome — the
+   ticket's per-component escape hatch. */
+[data-style='pixel'] {
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-full: 0px;
+  /* Tailwind's default scale steps beyond our named set (rounded-xl is the
+     composer surround — owner report 2026-09-24: curved in Pixel). Zeroed
+     here so EVERY radius utility goes square, named or default. */
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
+  --font-sans: 'ui-monospace', 'SF Mono', 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+  --shadow-popover:
+    0 0 0 1px var(--tk-text),
+    4px 4px 0 rgb(0 0 0 / 0.35);
+  --shadow-modal:
+    0 0 0 1px var(--tk-text),
+    6px 6px 0 rgb(0 0 0 / 0.4);
+  --shadow-elevated-soft: 2px 2px 0 var(--tk-border);
+  /* Hard, unblurred edges — the pixel chrome's offset language. */
+  --shadow-sheet: 0 -4px 0 var(--tk-shade);
+  --shadow-drawer-start: 4px 0 0 var(--tk-shade);
+  --shadow-drawer-end: -4px 0 0 var(--tk-shade);
+}
+
+/* The escape hatch's other half: a subtree may carry data-style='harmony'
+   to opt back into the smooth chrome (dense tables, charts) — these are
+   the Harmony defaults, restated so the override is symmetric. */
+[data-style='harmony'] {
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+  /* Tailwind's default steps, restated (see the pixel block's note). */
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+  --radius-4xl: 2rem;
+  --font-sans: 'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  --shadow-popover:
+    0 0 0 1px oklch(1 0 0 / 0.08),
+    0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-modal:
+    0 0 0 1px oklch(1 0 0 / 0.08),
+    0 16px 48px rgb(0 0 0 / 0.5);
+  --shadow-elevated-soft: 0 0 0 1px oklch(1 0 0 / 0.08);
+  --shadow-sheet: 0 -4px 24px var(--tk-shade);
+  --shadow-drawer-start: 4px 0 24px var(--tk-shade);
+  --shadow-drawer-end: -4px 0 24px var(--tk-shade);
+}
+
+/* Reduced motion: all named-property transitions collapse to instant. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-pane: 0ms;
+    --duration-control: 0ms;
+  }
+}

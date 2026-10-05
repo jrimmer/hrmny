@@ -1,0 +1,19 @@
+{
+  "name": "@cytale/desktop",
+  "license": "BSD-3-Clause",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tauri 2.x desktop shell hosting the Hrmny web build (U27)",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "node scripts/release-config.mjs --out src-tauri/gen/build.conf.json && tauri build --config src-tauri/gen/build.conf.json",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

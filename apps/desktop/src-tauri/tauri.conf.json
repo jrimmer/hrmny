@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Hrmny",
+  "version": "0.1.0",
+  "identifier": "chat.hrmny.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @cytale/web dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm --filter @cytale/web build",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Hrmny",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 360,
+        "minHeight": 480,
+        "resizable": true,
+        "fullscreen": false,
+        "titleBarStyle": "Transparent",
+        "backgroundColor": "#0e0e11"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["cytale"]
+      }
+    },
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYyMTA2NTNDODhCNzY2QjEKUldTeFpyZUlQR1VROHQ4Ny9sb1JWTTZIb08xN2dDZ2U0WTVpREY2eVpPMzdlb1FpenFJUnZTL2QK",
+      "endpoints": []
+    }
+  }
+}

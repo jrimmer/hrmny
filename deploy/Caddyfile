@@ -1,0 +1,57 @@
+# Cytale edge (compose.yaml `caddy` service).
+#
+# CYTALE_DOMAIN / ACME_EMAIL come from .env via the compose environment.
+# ACME email is required because the placeholder is unconditional — to
+# register the CA account without an email, delete the global block.
+#
+# WebSocket upgrades (the gateway at /gateway/websocket) are automatic in
+# Caddy v2 — reverse_proxy handles them without extra directives.
+#
+# SIGNALING ONLY (voice plan KTD2/U12): call media never traverses Caddy.
+# Voice rides (a) the app's published UDP media range (CYTALE_MEDIA_UDP_
+# PORT_RANGE, default 50000-50099) directly, and (b) TURN over 3478/tcp+udp
+# plus the eturnal relay range on the `eturnal` service — see compose.yaml
+# and docs/self-hosting.md ("Voice calls").
+#
+# The SSH session bridge (U17/R8a) is SIGNALING's counterpart on the identity
+# side, and it is deliberately NOT here: `CytaleWeb.BridgeServer` runs its own
+# listener on the dedicated internal network with its own one-entry route
+# table, and `CytaleWeb.Router` has no such route at all. The denial below is
+# the SECOND layer — the control is network placement — kept so that a route
+# added under the bridge's prefix by mistake is still not reachable through
+# the public edge (docs/self-hosting.md, "SSH host").
+
+{
+	email {$ACME_EMAIL}
+
+	# Client address (security Tier 2 #1): believe X-Forwarded-For only from
+	# private-range peers — i.e. an external edge in front of this Caddy
+	# (CYTALE_EDGE_SCHEME=http). An internet client's own header is replaced,
+	# never appended to. The app then applies the same rule one hop in
+	# (CYTALE_TRUSTED_PROXIES); see docs/self-hosting.md, "Rate limits".
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+# CYTALE_EDGE_SCHEME — `https` (default) when this Caddy terminates TLS for
+# {$CYTALE_DOMAIN} itself (auto-HTTPS: ACME on 80/443). When an EXTERNAL edge
+# owns TLS and forwards to this host over plain HTTP (a border Caddy, any
+# front proxy — ACME HTTP-01 can then never reach this host, and the domain
+# site would serve only the automatic 308 redirect on :80), set
+# CYTALE_EDGE_SCHEME=http in .env: the site binds port 80 without the
+# redirect and the outer edge keeps terminating.
+{$CYTALE_EDGE_SCHEME:https}://{$CYTALE_DOMAIN} {
+	encode zstd gzip
+
+	# HSTS (security Tier 2 #7): browsers refuse plain HTTP to this host (and
+	# its subdomains) for a year after the first HTTPS visit, closing the
+	# SSL-strip window on every later one. Sent on the `http` edge-scheme site
+	# too: there the external edge relays it to the browser over its HTTPS.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	@bridge path /internal/*
+	respond @bridge 403
+
+	reverse_proxy cytale:4000
+}

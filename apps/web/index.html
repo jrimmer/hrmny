@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- interactive-widget=resizes-content (U4): the soft keyboard shrinks the
+         initial containing block instead of only the visual viewport, so the
+         100dvh flex column (topbar / pane / bottom-anchored composer) keeps
+         the composer above the keyboard in PWA standalone too. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <title>Hrmny</title>
+
+    <!-- Theme before the first paint. `AppShell` sets data-theme="dark", but it
+         runs long after the bundle loads; setting it here means the token
+         variables resolve to dark on the very first frame instead of the page
+         painting browser-default white and flipping when the CSS lands. -->
+    <!-- A FILE, not inline: the endpoint's CSP is script-src 'self' — an
+         inline block here is silently blocked and the pre-paint theme dies
+         with it (live incident 2026-09-19). -->
+    <script src="/boot-theme.js"></script>
+
+    <!--
+      The boot cover. Inline, above the bundle, on purpose: every value here is
+      literal (no CSS variables — the token stylesheet has not loaded yet) and
+      it costs no extra request, so it is on screen for the first frame the
+      browser paints. It covers the three transitions that used to read as
+      flashes: white→dark, the bare `shell`/`pane` skeleton, and the login page
+      rendering before a stored session resolves.
+
+      `src/app/boot/splash.ts` removes it the moment the app has a real surface
+      (auth page, error fallback) and the fail-safe script below removes it
+      regardless after 4s. Colour values mirror tokens.ts:
+      dark.background (neutral[900]) / dark.text (neutral[100]).
+    -->
+    <style>
+      html {
+        background: #131416;
+      }
+      html[data-theme='light'] {
+        background: #ffffff;
+      }
+      #boot-cover {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        background: #131416;
+        color: #f2f3f5;
+      }
+      #boot-cover[data-state='ready'] {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      /* The logo slot is FIXED SIZE so the animated mark can replace the
+         static one below without moving anything. */
+      /* One mark, two grounds: the desktop plate shows only when the shell
+         says desktop (data-shell set by boot-theme.js before first paint). */
+      .boot-logo .boot-mark-desktop {
+        display: none;
+      }
+      html[data-shell='desktop'] .boot-logo .boot-mark-desktop {
+        display: block;
+      }
+      html[data-shell='desktop'] .boot-logo .boot-mark-web {
+        display: none;
+      }
+      .boot-logo {
+        width: 96px;
+        height: 96px;
+        animation: boot-cover-pulse 1.6s ease-in-out infinite;
+      }
+      /* Announced, not shown: the mark is not the brand yet, so the only text
+         in the cover stays out of the layout. */
+      .boot-cover-text {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+      @keyframes boot-cover-pulse {
+        0%,
+        100% {
+          opacity: 0.5;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        /* One mark, two grounds: the desktop plate shows only when the shell
+         says desktop (data-shell set by boot-theme.js before first paint). */
+      .boot-logo .boot-mark-desktop {
+        display: none;
+      }
+      html[data-shell='desktop'] .boot-logo .boot-mark-desktop {
+        display: block;
+      }
+      html[data-shell='desktop'] .boot-logo .boot-mark-web {
+        display: none;
+      }
+      .boot-logo {
+          animation: none;
+        }
+        #boot-cover[data-state='ready'] {
+          transition: none;
+        }
+      }
+    </style>
+
+    <!-- U25 PWA surface -->
+    <link rel="manifest" href="/manifest.json" />
+    <!-- Dark-default theme color — tokens.ts dark.background (neutral[900]) -->
+    <meta name="theme-color" content="#131416" />
+    <meta name="description" content="Hosted real-time team chat — the Hrmny web client." />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Hrmny" />
+    <meta name="mobile-web-app-capable" content="yes" />
+  </head>
+  <body>
+    <div id="boot-cover" data-state="booting" role="status" aria-live="polite" aria-busy="true">
+      <div class="boot-logo" aria-hidden="true">
+        <!-- PLACEHOLDER mark (two mirrored arcs). Replace this <svg> — or drop
+             an animated asset into the same 96×96 box — when the brand mark
+             lands; the box, the pulse and the dismissal contract stay. -->
+        <!-- Two grounds, back in service (owner direction 2026-09-19): the WEB
+           cover boots the TRANSPARENT favicon (the cover itself is the dark
+           ground); the DESKTOP webview boots the BLACK app icon (its first
+           frame is not guaranteed dark). boot-theme.js sets data-shell=
+           "desktop" inside Tauri before this parses. -->
+        <img class="boot-mark-web" src="/icons/hrmny-favicon.png" alt="" width="96" height="96" />
+        <img class="boot-mark-desktop" src="/icons/hrmny-app-icon.png" alt="" width="96" height="96" />
+      </div>
+      <p class="boot-cover-text">Loading Hrmny</p>
+    </div>
+    <div id="root"></div>
+    <!--
+      Fail-safe: the cover must never outlive a bundle that failed to execute.
+      If `main.tsx` never runs (chunk 404, syntax error in a browser we do not
+      support, a thrown module-level exception), no application code is left to
+      take the cover down, so the timer does it. When the app IS alive it has
+      already dismissed the cover and this is a no-op.
+    -->
+    <script src="/boot-failsafe.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

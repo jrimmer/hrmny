@@ -1,0 +1,72 @@
+# AE1/AE2 — sign in, open the drawer, switch workspace, land in a channel.
+#
+# Runs against a Release-or-Debug build pointed at a server
+# (EXPO_PUBLIC_CYTALE_ORIGIN=http://localhost:4000). The password comes from the
+# environment so it never lands in git:
+#
+#   maestro test -e CYTALE_PASSWORD="$(cat /tmp/cytale-jordan-pw.txt)" \
+#     --udid <sim> apps/mobile/e2e/ae1-sign-in-navigate.yaml
+appId: chat.hrmny
+name: "AE1/AE2 — sign in, drawer, channel"
+---
+- launchApp:
+    clearState: true
+
+# A system "Open in Cytale?" prompt can be left over from a deep-link attempt.
+- tapOn:
+    text: "Cancel"
+    optional: true
+
+# Let the cold-launch restore settle before deciding whether the gate asks for
+# credentials — otherwise the check races the splash and skips sign-in.
+- waitForAnimationToEnd:
+    timeout: 15000
+
+# Keychain entries survive clearState, so a previous run's session may restore
+# straight to Home. Sign in only when the gate actually asks.
+- runFlow:
+    when:
+      visible:
+        id: "surface-sign-in"
+    commands:
+      - tapOn:
+          id: "sign-in-identifier"
+      - inputText: "jordan"
+      - tapOn:
+          id: "sign-in-password"
+      - inputText: "${CYTALE_PASSWORD}"
+      - hideKeyboard
+      - tapOn:
+          id: "sign-in-submit"
+      # iOS offers to save the password in Keychain after a form submit.
+      - tapOn:
+          text: "Not Now"
+          optional: true
+
+# Signed in: the root gate renders the drawer root (Home).
+- extendedWaitUntil:
+    visible:
+      id: "surface-home"
+    timeout: 30000
+
+- tapOn:
+    id: "title-bar-drawer"
+- assertVisible:
+    id: "navigation-drawer"
+- assertVisible:
+    id: "drawer-workspace-strip"
+
+# Switch to the Playground workspace, then open #general.
+- tapOn: "Playground"
+- tapOn: "general"
+
+- extendedWaitUntil:
+    visible:
+      id: "surface-channel"
+    timeout: 20000
+- assertVisible:
+    id: "message-list"
+- assertVisible:
+    id: "title-bar-voice"
+- assertVisible:
+    id: "composer-input"

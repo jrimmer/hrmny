@@ -1,0 +1,24 @@
+{
+  "name": "@cytale/load-test",
+  "license": "BSD-3-Clause",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cytale/api-client": "workspace:*",
+    "@cytale/domain": "workspace:*",
+    "@cytale/gateway-client": "workspace:*",
+    "@cytale/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

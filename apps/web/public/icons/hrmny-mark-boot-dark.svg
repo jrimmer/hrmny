@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Hrmny">
+  <title>Hrmny</title>
+  <!-- Desktop boot: the plate is BLACK and opaque — the desktop webview's
+       first frame is not guaranteed dark (owner direction 2026-09-19). -->
+  <rect width="512" height="512" rx="115" fill="#000000"/>
+  <g fill="#FFFFFF">
+    <rect x="148" y="123" width="52" height="266"/>
+    <rect x="312" y="123" width="52" height="266"/>
+    <rect x="148" y="240" width="216" height="32"/>
+  </g>
+</svg>

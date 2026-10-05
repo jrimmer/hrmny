@@ -1,0 +1,87 @@
+# Hrmny runtime image — fed by a CI release job, NOT by `docker build` from
+# the repo root.
+#
+# The release job builds the web SPA + prod mix release natively (fast, no
+# layer machinery around the expensive compile), stages the release into a
+# minimal context, and an image builder (kaniko in the maintainers' CI; any
+# Dockerfile builder works) executes THIS file. It is the runtime
+# stage of the root Dockerfile verbatim — keep the two in sync: deps,
+# priv mirroring, user, env, healthcheck, entrypoint.
+#
+# Expected context:
+#   release/         — _build/prod/rel/cytale from the sandbox build
+FROM debian:bookworm-slim
+
+# ca-certificates: outbound TLS · libssl3: Erlang crypto (libcrypto.so.3) ·
+# libstdc++6: native NIFs · ncurses-base: erl terminfo · curl: healthcheck.
+# The statoverride edit first: bookworm-slim ships a stale dpkg override for
+# the removed 'messagebus' group that aborts ANY apt-get install; kaniko
+# also lacks /dev/pts, hence noninteractive + no-install-recommends.
+ENV DEBIAN_FRONTEND=noninteractive
+RUN sed -i '/messagebus/d' /var/lib/dpkg/statoverride || true \
+ && apt-get update -qq \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl libssl3 libstdc++6 ncurses-base \
+ && rm -rf /var/lib/apt/lists/* \
+ && ldconfig \
+ && ln -sf /usr/lib/x86_64-linux-gnu/libcrypto.so.3 /usr/lib/libcrypto.so.3 \
+ && ln -sf /usr/lib/x86_64-linux-gnu/libssl.so.3 /usr/lib/libssl.so.3 \
+ && ln -sf /usr/lib/x86_64-linux-gnu/libstdc++.so.6 /usr/lib/libstdc++.so.6
+
+# Build-time DNS, OPTIONAL and empty by default. kaniko run outside a
+# container (`--force`) extracts the base image OVER its own live filesystem —
+# including bookworm-slim's resolv.conf (a systemd stub), which then breaks
+# kaniko's own push-time DNS. A builder in that position passes its resolvers
+# as a comma-separated list (`--build-arg BUILD_NAMESERVERS=192.0.2.53,1.1.1.1`)
+# and they are written here, one `nameserver` line each, in order. Everyone
+# else leaves it unset: the file is untouched, and at run time the container
+# runtime supplies DNS per container anyway.
+ARG BUILD_NAMESERVERS=
+RUN if [ -n "$BUILD_NAMESERVERS" ]; then \
+      for ns in $(echo "$BUILD_NAMESERVERS" | tr ',' ' '); do printf 'nameserver %s\n' "$ns"; done > /etc/resolv.conf; \
+    fi
+
+WORKDIR /app
+COPY release ./
+
+# Runtime layout: the release keeps `priv/*` under lib/cytale-<vsn>/priv, but
+# the server reads two of them CWD-relative (Plug.Static "priv/static",
+# Cytale.Migrations "priv/scylla_schema.cql") — mirror them at /app/priv.
+# attachments/ and search/ are volume mount points (compose.yaml).
+# /etc/cytale (#121): the server config + secrets mount point — owned by the
+# runtime user so the named volume initializes writable (docker copies the
+# image dir's ownership into a fresh named volume) and the first-boot
+# migration + the Server Settings save can write there.
+#
+# backups/ (hardening plan 1.5) is the same contract for the archive volume: the
+# app runs as USER cytale, so a mount point that does not exist in the image is
+# created ROOT-owned by docker and every backup write fails with EACCES. It must
+# be created here, before the chown below.
+RUN mkdir -p priv/attachments priv/search backups /etc/cytale \
+ && cp -r lib/cytale-*/priv/static priv/static \
+ && cp lib/cytale-*/priv/scylla_schema.cql priv/scylla_schema.cql \
+ && useradd --system --create-home --home-dir /home/cytale --shell /usr/sbin/nologin cytale \
+ && chown -R cytale:cytale /app \
+ && chown cytale:cytale /etc/cytale
+
+USER cytale
+ENV HOME=/home/cytale \
+    PORT=4000
+
+EXPOSE 4000
+# Liveness via the release's own node — NOT curl: kaniko's snapshotting in a
+# CI sandbox has been seen to drop the apt layer, so curl/wget are absent at runtime (the
+# installed-curl assumption was wrong for every CI-built image). compose.yaml
+# carries the same probe so a stale image cannot report unhealthy either.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+  CMD /app/bin/cytale pid || exit 1
+
+ENTRYPOINT ["/app/bin/cytale"]
+CMD ["start"]
+
+# CI guard: the runtime NIFs (ex_libsrtp, muninn) need these exactly
+# resolvable — kaniko never refreshes the loader cache after apt, so
+# verify the fallback symlinks exist before the image is pushed.
+RUN set -e; for so in libcrypto.so.3 libssl.so.3 libstdc++.so.6; do \
+      test -e "/usr/lib/$so" || { echo "MISSING $so" >&2; exit 1; }; \
+    done && echo RUNTIME_LIBS_OK

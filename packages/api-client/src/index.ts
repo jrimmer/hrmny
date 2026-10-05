@@ -1,0 +1,135 @@
+/**
+ * @cytale/api-client — typed REST client for the Cytale `/api/v1` surface.
+ *
+ * Exposes the client class, the HTTP layer (for advanced wiring), shared
+ * types (ApiError, token providers, list envelope), and re-exports
+ * @cytale/domain so consumers can depend on this package alone.
+ */
+
+export {
+  CytaleApiClient,
+  PEOPLE_PAGE_CAP,
+  type MintedPermalink,
+  type PeoplePage,
+  type PeopleParams,
+  type ResolvedPermalink,
+} from './api-client.js';
+export {
+  Http,
+  IDEMPOTENCY_KEY_HEADER,
+  REQUEST_ID_HEADER,
+  type HttpLayerOptions,
+  type RequestFailure,
+} from './http.js';
+export {
+  ClientErrorReporter,
+  DEFAULT_GATEWAY_POLL_INTERVAL_MS,
+  DEFAULT_MAX_PER_SESSION,
+  DEFAULT_MAX_PER_WINDOW,
+  DEFAULT_MAX_QUEUED,
+  DEFAULT_WINDOW_MS,
+  GATEWAY_FAILURE_COUNTERS,
+  MAX_DETAIL_CHARS,
+  MAX_MESSAGE_CHARS,
+  MAX_ROUTE_CHARS,
+  MAX_STACK_CHARS,
+  createGatewayTelemetryPoller,
+  describeThrown,
+  fingerprintOf,
+  gatewayTelemetryDeltas,
+  hasForbiddenField,
+  redact,
+  redactPath,
+  type ClientErrorEventInput,
+  type ClientErrorPayload,
+  type ClientErrorReporterOptions,
+  type ClientErrorReporterState,
+  type ClientErrorSource,
+  type ClientKind,
+  type GatewayFailureCounter,
+  type GatewayTelemetryDelta,
+  type GatewayTelemetryPoller,
+  type TelemetrySource,
+} from './client-errors.js';
+export {
+  ApiError,
+  createInMemoryTokenProvider,
+  toListResponse,
+  type ApiErrorShape,
+  type RateLimitScope,
+  type ApplicationCommand,
+  type ApplicationCommandOption,
+  type Bot,
+  type CallCapabilities,
+  type CallStateResponse,
+  type ChannelMediaOverride,
+  type ChannelMediaOverrideView,
+  type CreatedWebhook,
+  type CreatePrincipalBody,
+  type CreateWebhookBody,
+  type EndedCallRecord,
+  type AccessDocument,
+  type AccessLevel,
+  type IceConfigResponse,
+  type IceServer,
+  type InvokeComponentInteractionBody,
+  type MessageMark,
+  type SubmitModalBody,
+  type InvokeInteractionBody,
+  type ListParams,
+  type ListResponse,
+  type LiveCallState,
+  type MintedPrincipalCredential,
+  type MessageWithReactions,
+  type MyIntegration,
+  type MyWebhook,
+  type NativeFileDescriptor,
+  type PrincipalAction,
+  type PrincipalRestrictions,
+  type ReactionSummary,
+  type ReactionUser,
+  type ReactionUsersParams,
+  type ReactionUsersResponse,
+  type RegeneratedCredential,
+  type RequestOptions,
+  type WorkspaceGrant,
+  type WorkspacesAccessMode,
+  type SendMessageBody,
+  type ServerConfigDocument,
+  type ServerConfigKeyMeta,
+  type ServerConfigSaveResult,
+  type StoredTokens,
+  type TokenProvider,
+  type UpdatePrincipalBody,
+  type UpdateWebhookBody,
+  type UploadFile,
+  type Webhook,
+  type WorkspaceMediaSettings,
+  type AuthMethods,
+  type LoginResponse,
+  type LoginStepUser,
+  type OidcCallbackBody,
+  type OidcCallbackResponse,
+  type OidcStartBody,
+  type OidcStartResponse,
+  type TwoFactorEnrollConfirmBody,
+  type TwoFactorEnrollConfirmResponse,
+  type TwoFactorEnrollStart,
+  type TwoFactorStatus,
+  type TwoFactorVerifyBody,
+  type WebauthnCredential,
+  type WebauthnLoginVerifyBody,
+  type WebauthnOptions,
+  type WebauthnRegisterVerifyBody,
+  isNativeFileDescriptor,
+} from './types.js';
+
+// Re-export domain models so consumers of the REST surface get entity types
+// alongside the methods that return them.
+export * from '@cytale/domain';
+
+// Protocol-owned wire shapes the REST surface mirrors (hardening 6.5): the
+// call roster and end reasons are imported, never re-declared, so the two wire
+// paths cannot drift. Re-exported so call consumers depend on this package
+// alone.
+export type { CallEndReason, CallParticipant } from '@cytale/protocol';

@@ -1,0 +1,129 @@
+# CI for pull requests and main: typecheck, the TypeScript suites, the
+# server's DB-free suite, and the Go SSH host. Nothing here needs a
+# database or any private infrastructure — the server suite runs with
+# CYTALE_TEST_NO_DB=1, which excludes every :scylla-tagged test and says so
+# in a PARTIAL-run banner (the DB half needs a ScyllaDB node; see
+# CONTRIBUTING.md).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    name: TypeScript (typecheck + unit suites)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install workspace deps
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --reporter=append-only
+      - name: Workspace typecheck
+        run: pnpm typecheck
+      - name: Shared packages
+        run: pnpm --filter "./packages/*" test
+      - name: Web (vitest)
+        run: pnpm --filter @cytale/web test
+      - name: Terminal client
+        run: pnpm --filter @cytale/tui test
+      - name: Mobile (jest)
+        run: pnpm --filter @cytale/mobile test
+      - name: Desktop shell config
+        run: pnpm --filter @cytale/desktop test
+      - name: Release SPA build carries no e2e driver
+        env:
+          CYTALE_VERSION: ${{ github.sha }}
+        run: |
+          set -eu
+          pnpm --filter @cytale/web run build
+          DIST=apps/web/dist
+          fail=0
+          if grep -rl "127\.0\.0\.1:4199" "$DIST" >/dev/null 2>&1; then echo "::error::control channel marker in the release bundle"; fail=1; fi
+          if grep -rl "__cytaleE2E" "$DIST" >/dev/null 2>&1; then echo "::error::composer e2e bridge in the release bundle"; fail=1; fi
+          if ls "$DIST"/assets/ | grep -qi 'driver'; then echo "::error::a driver chunk in the release bundle"; fail=1; fi
+          [ "$fail" -eq 0 ]
+
+  server:
+    name: Server (format, compile, protocol gates, DB-free suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Native build deps
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libsrtp2-dev
+      - name: Format check
+        working-directory: apps/server
+        run: mix format --check-formatted
+      - name: Deps cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/server/deps
+            apps/server/_build
+          key: mix-${{ runner.os }}-${{ hashFiles('apps/server/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+      - name: Install and compile
+        working-directory: apps/server
+        run: |
+          mix local.hex --if-missing --force
+          mix local.rebar --if-missing --force
+          mix deps.get
+          mix compile
+      - name: Protocol and seam gates
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --reporter=append-only
+          pnpm protocol:check
+          pnpm seam:check
+      - name: Server suite (DB-free partial run)
+        working-directory: apps/server
+        env:
+          CYTALE_TEST_NO_DB: "1"
+        run: mix test
+
+  ssh-host:
+    name: SSH host (Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/ssh-host
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/ssh-host/go.mod
+          cache-dependency-path: apps/ssh-host/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...

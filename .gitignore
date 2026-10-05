@@ -1,0 +1,72 @@
+# Vendored product-reference material (third-party copyright) — keep local only
+/docs/research/screenshots/
+
+# Scratch/diagnostics
+*.dump
+*.crash
+
+# Elixir / Phoenix
+_build/
+deps/
+*.plt
+*.plt.sha
+
+# Node / TypeScript
+node_modules/
+dist/
+.turbo/
+coverage/
+
+# pnpm's package store. A `pnpm <script>` run in this checkout can materialise
+# a repo-local store (41 MB, tens of thousands of files) rather than using the
+# global one. It was untracked and NOT ignored, so it was invisible to
+# `git status --short` skimming while sitting one `git add -A` from being
+# committed — the same shape as the deploy/ssh/ near-miss above.
+.pnpm-store/
+
+# Rust / native NIFs
+target/
+
+# Secrets & env
+.env
+.env.*
+!.env.example
+# E2E build mode (a build flag, not a secret) — the desktop harness builds
+# the SPA with `vite build --mode e2e`.
+!apps/web/.env.e2e
+
+# The terminal host's secret directory. `.env.example` defaults
+# CYTALE_SSH_SECRETS_DIR to ./deploy/ssh — INSIDE the checkout — and
+# docs/self-hosting.md says that default "is NOT committed", but nothing enforced it:
+# .dockerignore excluded the path and this file did not, so `git add -A` would
+# have committed the CA private key, the host key, and the bridge credential.
+deploy/ssh/
+
+# OS noise
+.DS_Store
+apps/desktop/src-tauri/gen/
+apps/web/test-results/
+# Build output of scripts/release-notes.mjs (the version badge's notes) —
+# generated from git history at build time, never committed.
+apps/web/public/release-notes.json
+
+# Agent/tooling session state
+.zcode/
+.claude/
+
+# #121 dev/test server-config default location (CYTALE_SERVER_CONFIG_PATH
+# defaults under apps/server/tmp in non-prod; generation is test-off, but a
+# dev boot writes config.json + secrets.json here — never committed).
+/apps/server/tmp/
+
+# #120 local backup output (scheduler writes archives here in dev; the real
+# deployment's dir is a host volume).
+/apps/server/backups/
+
+# UI audit captures follow the same policy as docs/research/screenshots:
+# third-party visual material stays out of git.
+/docs/research/ui-audit-*/screenshots/
+
+# Live e2e suite output (scripts/e2e-live.sh): Playwright report, traces, logs.
+/apps/web/e2e-live-results/
+/apps/web/playwright-report/

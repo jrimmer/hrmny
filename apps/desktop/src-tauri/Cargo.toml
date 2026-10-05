@@ -1,0 +1,40 @@
+[package]
+name = "cytale-desktop"
+version = "0.1.0"
+description = "Hrmny desktop shell — hosts the web build in the OS webview (Tauri 2)"
+authors = ["The Hrmny contributors"]
+license = "BSD-3-Clause"
+repository = "https://github.com/jrimmer/hrmny"
+publish = false
+edition = "2021"
+rust-version = "1.77"
+
+# The library + binary split keeps the shell testable: `cargo test` runs the
+# unit tests in src/lib.rs without launching a window.
+[lib]
+name = "cytale_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-opener = "2"
+# OS credential store for the session tokens (macOS Keychain, Windows
+# Credential Manager, Linux Secret Service). The webview's localStorage is
+# world-readable to anything running at tauri://localhost and sits in a
+# plaintext SQLite file on disk; a 30-day refresh token does not belong there.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

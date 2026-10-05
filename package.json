@@ -1,0 +1,32 @@
+{
+  "name": "cytale",
+  "license": "BSD-3-Clause",
+  "repository": { "type": "git", "url": "https://github.com/jrimmer/hrmny.git" },
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "compat:check": "tsx tools/discord-compat-check.mts",
+    "compat:check:py": "python3 tools/discordpy-compat-check.py",
+    "discordjs:leg": "tsx tools/discordjs-leg.mts",
+    "e2e:desktop": "tsx tools/desktop-e2e.mts",
+    "lint": "turbo run lint",
+    "release-notes": "node scripts/release-notes.mjs",
+    "release-notes:missing": "node scripts/release-notes.mjs --missing",
+    "protocol:check": "node --experimental-strip-types --no-warnings tools/protocol-check.ts",
+    "seam:check": "tsx tools/seam-check.ts",
+    "smoke": "tsx tools/smoke.mts",
+    "soak": "tsx tools/soak.mts",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "discord.js": "14.27.0",
+    "tsx": "^4.23.13",
+    "turbo": "^2.5.8"
+  },
+  "pnpm": {}
+}
