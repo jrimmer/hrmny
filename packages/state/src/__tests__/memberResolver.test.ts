@@ -6,12 +6,12 @@
  * raw snowflake. The resolver names the authors actually on screen with a
  * batched lookup, and a reconnect's page read keeps what it named.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import type { Message, Thread, WorkspaceMember } from '@cytale/domain';
 import type { GatewayEvent, MessageCreate } from '@cytale/protocol';
 
-import { startMemberResolver, type MemberResolver } from '../memberResolver.js';
+import { startMemberResolver, type MemberLookup, type MemberResolver } from '../memberResolver.js';
 import { applyGatewayEvent, mergeChannelMessages } from '../reconcile.js';
 import { mergeMembers, replaceMembers } from '../roster.js';
 import { createStateStore, type StateStore } from '../store.js';
@@ -93,7 +93,7 @@ function seed(store: StateStore): void {
 }
 
 let store: StateStore;
-let lookup: ReturnType<typeof vi.fn>;
+let lookup: Mock<MemberLookup>;
 let resolver: MemberResolver;
 
 beforeEach(() => {

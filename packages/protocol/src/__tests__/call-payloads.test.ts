@@ -250,6 +250,6 @@ describe('op 23 CALL_SIGNAL command payload', () => {
     // the same boundary.
     expect(CALL_SIGNAL_BODY_MAX_BYTES).toBe(131072);
     const atCap: GatewayCallSignalPayload = { channel_id: CH, kind: 'ice', body: 'y'.repeat(CALL_SIGNAL_BODY_MAX_BYTES) };
-    expect(Buffer.byteLength(atCap.body, 'utf8')).toBe(CALL_SIGNAL_BODY_MAX_BYTES);
+    expect(new TextEncoder().encode(atCap.body).byteLength).toBe(CALL_SIGNAL_BODY_MAX_BYTES);
   });
 });
