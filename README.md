@@ -264,6 +264,9 @@ Please report security issues privately as described in
 
 ## Acknowledgements
 
+Thank you to [indigosour](https://github.com/indigosour) for the push to
+build Hrmny in the first place.
+
 Hrmny stands on a lot of other people's work. Thank you to the authors and
 maintainers of:
 
