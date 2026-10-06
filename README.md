@@ -1,6 +1,6 @@
 # Hrmny
 
-[![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE) ![status](https://img.shields.io/badge/status-beta-orange)
+[![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE) [![release](https://img.shields.io/badge/release-v1.0.0-blue)](https://github.com/jrimmer/hrmny/releases/latest)
 
 Hrmny is a self-hostable, real-time team chat platform built on
 **Elixir/BEAM and ScyllaDB**. It is shaped like Discord (workspaces, channels,
@@ -38,10 +38,16 @@ these screenshots.*
 
 ## Status
 
-Beta. The core product is complete and in daily use on the maintainers' own
-deployment. Expect rough edges, schema changes that need a one-off step (they
-are called out in [docs/self-hosting.md](docs/self-hosting.md)), and a wire
-protocol that is versioned but still evolving
+**1.0.0** is the current release
+([release notes](https://github.com/jrimmer/hrmny/releases/tag/v1.0.0)).
+The web app, the desktop app and the terminal client are complete and in daily
+use on the maintainers' own deployment. The mobile app is not part of 1.0.
+
+Releases are tagged `vMAJOR.MINOR.PATCH` and publish matching container
+images (`:1.0.0`, and `:1.0` for the latest patch). `main` keeps moving and
+publishes `:latest`. A schema change that needs a one-off step is called out
+in [docs/self-hosting.md](docs/self-hosting.md). The wire protocol is
+versioned separately from the app
 ([docs/protocol/versioning.md](docs/protocol/versioning.md)).
 
 A public instance you can sign up to and try without running a server is
@@ -151,7 +157,9 @@ git clone https://github.com/jrimmer/hrmny.git && cd hrmny
 cp .env.example .env
 # Fill in .env: SECRET_KEY_BASE, AUTH_JWT_SECRET and AUTH_REFRESH_PEPPER
 # (e.g. `openssl rand -base64 48` each), CYTALE_DOMAIN=chat.example.com
-# and ACME_EMAIL.
+# and ACME_EMAIL. To stay on a release instead of following main, also set
+# CYTALE_IMAGE=ghcr.io/jrimmer/hrmny:1.0.0 and
+# CYTALE_SSH_HOST_IMAGE=ghcr.io/jrimmer/hrmny-ssh-host:1.0.0.
 docker compose pull      # ghcr.io/jrimmer/hrmny and ghcr.io/jrimmer/hrmny-ssh-host
 docker compose up -d
 curl -fsS https://chat.example.com/health
