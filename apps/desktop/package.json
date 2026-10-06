@@ -2,7 +2,7 @@
   "name": "@cytale/desktop",
   "license": "BSD-3-Clause",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Tauri 2.x desktop shell hosting the Hrmny web build (U27)",
   "scripts": {
     "tauri": "tauri",

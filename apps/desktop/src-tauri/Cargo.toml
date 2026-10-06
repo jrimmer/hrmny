@@ -1,6 +1,6 @@
 [package]
 name = "cytale-desktop"
-version = "0.1.0"
+version = "1.0.0"
 description = "Hrmny desktop shell — hosts the web build in the OS webview (Tauri 2)"
 authors = ["The Hrmny contributors"]
 license = "BSD-3-Clause"
