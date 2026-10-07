@@ -103,6 +103,55 @@ defmodule CytaleWeb.ErrorHandlerTest do
     end
   end
 
+  describe "storage_full?/1 — a full disk is told apart" do
+    # The exact error the production host returned on 2026-10-06.
+    @disk_full %Xandra.Error{
+      reason: :write_failure,
+      message: "Critical disk utilization: rejected write mutation"
+    }
+
+    test "ScyllaDB's critical-disk rejection is storage_full" do
+      assert ErrorHandler.storage_full?(@disk_full)
+    end
+
+    test "any other write failure is not, and stays out of the transient 503" do
+      refute ErrorHandler.storage_full?(%Xandra.Error{reason: :write_failure, message: "Operation failed"})
+      refute ErrorHandler.storage_full?(%Xandra.Error{reason: :write_failure})
+      refute ErrorHandler.database_unavailable?(@disk_full)
+      refute ErrorHandler.storage_full?(%RuntimeError{message: "Critical disk utilization"})
+      refute ErrorHandler.storage_full?(nil)
+    end
+
+    test "the response is 503 storage_full with no Retry-After" do
+      sent =
+        ErrorHandler.handle_errors(conn(:post, "/api/v1/auth/login"), %{
+          kind: :error,
+          reason: @disk_full,
+          stack: stacktrace()
+        })
+
+      assert sent.status == 503
+      # Nothing improves until an operator frees space, and a rejected write
+      # still gets no hint to re-send.
+      assert get_resp_header(sent, "retry-after") == []
+
+      body = Jason.decode!(sent.resp_body)
+      assert body["error"]["key"] == "storage_full"
+      assert body["error"]["code"] == 50_302
+      assert body["error"]["message"] =~ "out of storage"
+    end
+
+    test "the compat dialect keeps its bare shape" do
+      sent =
+        conn(:post, "/api/v10/channels/1/messages")
+        |> assign(:error_dialect, :compat)
+        |> ErrorHandler.handle_errors(%{kind: :error, reason: @disk_full, stack: stacktrace()})
+
+      assert sent.status == 503
+      assert Jason.decode!(sent.resp_body) == %{"code" => 0, "message" => "503: Service Unavailable"}
+    end
+  end
+
   describe "handle_errors/2 — the response" do
     test "a database outage becomes 503 + Retry-After + the documented envelope" do
       http_conn = conn(:get, "/api/v1/channels/1/messages")

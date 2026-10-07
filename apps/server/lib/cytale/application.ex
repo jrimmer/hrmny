@@ -226,6 +226,10 @@ defmodule Cytale.Application do
     # every link already copied).
     :ok = Cytale.Permalinks.log_key_source()
 
+    # An unwritable attachment root otherwise shows up only as failed uploads.
+    # Warn-only: logs an error, never fails the boot.
+    :ok = Cytale.Attachments.Store.log_root_status()
+
     # Boot-time schema lifecycle (hardening plan 4.5): apply (idempotent) +
     # verify, and it must complete BEFORE the endpoint accepts traffic. The
     # endpoint used to sit in `children` while these ran after

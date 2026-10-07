@@ -92,6 +92,30 @@ describe('describeAuthError', () => {
     expect(info.detail).toBe('rate_limited · 42901 · HTTP 429');
   });
 
+  it("a server 503 shows the server's own message, e.g. a full disk", () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const info = describeAuthError(
+      new ApiError({
+        key: 'storage_full',
+        code: 50302,
+        message: "The server is out of storage space, so it can't save changes right now.",
+        status: 503,
+      }),
+      { fallback: 'Could not sign in. Please try again.', context: 'login' },
+    );
+    expect(info.message).toMatch(/out of storage/);
+    expect(info.detail).toBe('storage_full · 50302 · HTTP 503');
+  });
+
+  it('a 503 without a server key (a proxy) keeps the page fallback', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const info = describeAuthError(
+      new ApiError({ key: 'unknown_error', code: 0, message: 'Service Unavailable', status: 503 }),
+      { fallback: 'Could not sign in. Please try again.', context: 'login' },
+    );
+    expect(info.message).toBe('Could not sign in. Please try again.');
+  });
+
   it('legacy RATE_LIMITED fixtures are classified too', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const info = describeAuthError(

@@ -95,5 +95,27 @@ export function describeAuthError(
     return { message, detail };
   }
 
+  if (isServerUnavailableError(err)) {
+    // The server's own 503 copy says why ("out of storage", "busy"); the
+    // page fallback would send the user to retype a password that is fine.
+    const message = typeof e?.message === 'string' && e.message ? e.message : fallback;
+    return { message, detail };
+  }
+
   return { message: fallback, detail };
+}
+
+/** The server's own 503 keys (docs/protocol/rest.md), whose messages are written for users. */
+const SERVER_UNAVAILABLE_KEYS = new Set(['service_unavailable', 'service_busy', 'storage_full']);
+
+/**
+ * True for a 503 the server itself sent with one of its documented keys. A
+ * 503 from a proxy in front of it carries no such key and keeps the fallback.
+ *
+ * @param err the caught error (ApiError, anything)
+ */
+export function isServerUnavailableError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { key?: unknown; status?: unknown };
+  return e.status === 503 && typeof e.key === 'string' && SERVER_UNAVAILABLE_KEYS.has(e.key.toLowerCase());
 }

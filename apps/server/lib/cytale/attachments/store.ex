@@ -24,6 +24,45 @@ defmodule Cytale.Attachments.Store do
   @spec root() :: String.t()
   def root, do: Cytale.Config.attachments_root()
 
+  @doc """
+  Boot check: log an error when the attachment root cannot be written.
+
+  Warn-only, so it never fails a boot. Without it an unwritable root is
+  invisible until someone's upload fails: on 2026-10-06 the production
+  container's root filesystem was read-only and its volume was mounted at the
+  old release's versioned `priv` path, so after the 1.0.0 deploy every upload
+  raised while the server otherwise looked healthy.
+  """
+  @spec log_root_status() :: :ok
+  def log_root_status do
+    dir = root()
+
+    case probe_writable(dir) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        require Logger
+
+        Logger.error(
+          "attachment storage is not writable at #{dir} (#{:file.format_error(reason)}): " <>
+            "uploads will fail. Mount a writable volume there, or point " <>
+            "CYTALE_ATTACHMENTS_ROOT at one."
+        )
+    end
+  end
+
+  @doc "Can `dir` be created and written? Writes and removes a probe file."
+  @spec probe_writable(String.t()) :: :ok | {:error, File.posix()}
+  def probe_writable(dir) do
+    probe = Path.join(dir, ".write-probe-#{System.unique_integer([:positive])}")
+
+    with :ok <- File.mkdir_p(dir),
+         :ok <- File.write(probe, "") do
+      File.rm(probe)
+    end
+  end
+
   # Suffix of an in-flight temp file (write-then-rename; excluded from reads and
   # from the byte counter).
   @temp_infix ".tmp-"

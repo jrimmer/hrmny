@@ -10,8 +10,9 @@ defmodule CytaleWeb.ErrorHandler do
 
   ## Everything else is RE-RAISED, deliberately
 
-  The handler converts exactly one class — the database being unavailable — and
-  re-raises every other exception, so behavior for genuine bugs is byte-identical
+  The handler converts only the database being unavailable (and its two
+  relatives: a full database disk, `storage_full?/1`, and Argon2 at capacity)
+  and re-raises every other exception, so behavior for genuine bugs is byte-identical
   to before this module existed (which is also what the plan asks: "leaving
   genuine bugs as 500"). Re-raising rather than synthesizing a 500 keeps the
   existing contract that a server-side bug is a raised exception, which the SSH
@@ -94,13 +95,24 @@ defmodule CytaleWeb.ErrorHandler do
   end
 
   def handle_errors(conn, %{kind: :error, reason: reason, stack: stack}) do
-    if database_unavailable?(reason) do
-      conn
-      |> put_resp_content_type("application/json")
-      |> put_resp_header("retry-after", Integer.to_string(@retry_after_seconds))
-      |> send_resp(503, Jason.encode!(envelope(conn)))
-    else
-      reraise reason, stack
+    cond do
+      # Checked FIRST: a full disk arrives as a write-failure reason, which the
+      # transient classifier below rightly refuses. No Retry-After — nothing
+      # changes until an operator frees space, and the write rule above still
+      # holds, so the client gets no hint to re-send.
+      storage_full?(reason) ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(503, Jason.encode!(storage_full_envelope(conn)))
+
+      database_unavailable?(reason) ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> put_resp_header("retry-after", Integer.to_string(@retry_after_seconds))
+        |> send_resp(503, Jason.encode!(envelope(conn)))
+
+      true ->
+        reraise reason, stack
     end
   end
 
@@ -123,6 +135,23 @@ defmodule CytaleWeb.ErrorHandler do
 
   def database_unavailable?(%Xandra.Error{reason: reason}), do: transient?(reason)
   def database_unavailable?(_other), do: false
+
+  @doc """
+  Is this ScyllaDB refusing writes because its disk is nearly full?
+
+  Past its critical utilization level (98% by default) ScyllaDB rejects every
+  write mutation with this message, so each write-path request — logging in
+  included, since that writes a session — failed as a bare 500 with nothing to
+  tell the user or the operator why (2026-10-06: a full root filesystem on the
+  production host broke every login). Matched on the message, not the reason:
+  the driver reports it as a plain `:write_failure`, which also covers
+  failures whose outcome is genuinely unknown.
+  """
+  @spec storage_full?(term()) :: boolean()
+  def storage_full?(%Xandra.Error{message: message}) when is_binary(message),
+    do: String.contains?(message, "Critical disk utilization")
+
+  def storage_full?(_other), do: false
 
   # Xandra's ACTUAL "all nodes are down" reason. The generic tuple clause below
   # tests `elem(reason, 0)`, which is `:cluster` for this pair — and `:cluster`
@@ -176,6 +205,21 @@ defmodule CytaleWeb.ErrorHandler do
         "key" => "service_unavailable",
         "code" => 50_301,
         "message" => "The database is temporarily unavailable. Retry shortly."
+      }
+    }
+  end
+
+  defp storage_full_envelope(%{assigns: %{error_dialect: :compat}}),
+    do: %{"code" => 0, "message" => "503: Service Unavailable"}
+
+  defp storage_full_envelope(_conn) do
+    %{
+      "error" => %{
+        "key" => "storage_full",
+        "code" => 50_302,
+        "message" =>
+          "The server is out of storage space, so it can't save changes right now. " <>
+            "An administrator needs to free up disk space."
       }
     }
   end

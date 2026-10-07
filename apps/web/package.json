@@ -2,7 +2,7 @@
   "name": "@cytale/web",
   "license": "BSD-3-Clause",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && vite build",

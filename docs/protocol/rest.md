@@ -38,6 +38,10 @@ Base URL: `https://<host>/api/v1`
   retrying it could duplicate the write. The other half of the same hardening
   item — a cluster-wide driver retry strategy — is not configured yet, so
   `Retry-After` is a client hint, not a server guarantee.
+  The one write failure answered with `503` is the database refusing writes
+  because its disk is full: `key: "storage_full"`, `code: 50302`, and NO
+  `Retry-After`, since nothing changes until an operator frees space. Show the
+  message; don't retry automatically.
   The Discord-compatible surface at `/api/v10` (and its bare `/api` alias) does
   NOT use this envelope; it keeps its own bare `{code, message}` shape — see
   [compat](./compat.md).
