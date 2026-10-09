@@ -2,6 +2,12 @@ module github.com/jrimmer/hrmny/apps/ssh-host
 
 go 1.27
 
+// Go 1.27.2 fixes eight standard-library advisories this host reaches
+// (crypto/tls, net/http, http2: GO-2026-6603, -6605, -6607 among them).
+// The go-base runner image still carries 1.27.1, so the toolchain line makes
+// `go` fetch 1.27.2 there; Dockerfile.ssh-host builds on the same version.
+toolchain go1.27.2
+
 require (
 	charm.land/ssh v0.4.3
 	charm.land/wish/v2 v2.0.4

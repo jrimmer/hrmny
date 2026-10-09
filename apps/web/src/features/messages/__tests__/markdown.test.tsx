@@ -12,8 +12,8 @@
  * `renderInlineMarkdown` stays inline-only on purpose: the mobile parity suite
  * executes it over a shared corpus.
  */
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 
 import { renderInlineMarkdown, renderMarkdown } from '../markdown.js';
@@ -89,6 +89,45 @@ describe('renderInlineMarkdown — inline-only (mobile parity contract)', () => 
     // shared corpus. Block handling lives in renderMarkdown.
     const { container } = render(<div>{renderInlineMarkdown('```\ncode\n```')}</div>);
     expect(container.querySelector('[data-testid="code-block"]')).toBeNull();
+  });
+});
+
+describe('renderMarkdown — timestamp tags', () => {
+  /** 2026-10-06 23:20:00 UTC. */
+  const AT = 1791328800;
+
+  afterEach(() => vi.useRealTimers());
+
+  it('draws a <time> carrying the instant, with the full date on hover', () => {
+    const { container } = render(inBody(`deploy at <t:${AT}:D>`));
+    const time = container.querySelector('time.md-timestamp')!;
+    expect(time.getAttribute('datetime')).toBe('2026-10-06T23:20:00.000Z');
+    expect(time.getAttribute('title')).toMatch(/2026/);
+    expect(container.textContent).not.toContain('<t:');
+  });
+
+  it('R counts down live, and on past the moment', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime((AT - 5 * 60) * 1000);
+    const { container } = render(inBody(`If you don't answer <t:${AT}:R> it will NOT run.`));
+    const label = () => container.querySelector('time.md-timestamp')!.textContent;
+    // A second at a time: each tick's re-render schedules the next one.
+    const wait = (seconds: number) => {
+      for (let i = 0; i < seconds; i += 1) act(() => vi.advanceTimersByTime(1000));
+    };
+
+    expect(label()).toBe('in 5 minutes');
+    wait(2 * 60);
+    expect(label()).toBe('in 3 minutes');
+    wait(2 * 60 + 30);
+    expect(label()).toBe('in 30 seconds');
+    wait(90);
+    expect(label()).toBe('1 minute ago');
+  });
+
+  it('is not a live region: a ticking countdown never announces itself', () => {
+    const { container } = render(inBody(`<t:${AT}:R>`));
+    expect(container.querySelector('[aria-live]')).toBeNull();
   });
 });
 

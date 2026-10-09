@@ -1,6 +1,6 @@
 # Hrmny
 
-[![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE) [![release](https://img.shields.io/badge/release-v1.0.1-blue)](https://github.com/jrimmer/hrmny/releases/latest)
+[![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE) [![release](https://img.shields.io/badge/release-v1.0.2-blue)](https://github.com/jrimmer/hrmny/releases/latest)
 
 Hrmny is a self-hostable, real-time team chat platform built on
 **Elixir/BEAM and ScyllaDB**. It is shaped like Discord (workspaces, channels,
@@ -38,8 +38,8 @@ these screenshots.*
 
 ## Status
 
-**1.0.1** is the current release
-([release notes](https://github.com/jrimmer/hrmny/releases/tag/v1.0.1)).
+**1.0.2** is the current release
+([release notes](https://github.com/jrimmer/hrmny/releases/tag/v1.0.2)).
 The web app, the desktop app and the terminal client are complete and in daily
 use on the maintainers' own deployment. The mobile app is not part of 1.0.
 
@@ -158,8 +158,8 @@ cp .env.example .env
 # Fill in .env: SECRET_KEY_BASE, AUTH_JWT_SECRET and AUTH_REFRESH_PEPPER
 # (e.g. `openssl rand -base64 48` each), CYTALE_DOMAIN=chat.example.com
 # and ACME_EMAIL. To stay on a release instead of following main, also set
-# CYTALE_IMAGE=ghcr.io/jrimmer/hrmny:1.0.1 and
-# CYTALE_SSH_HOST_IMAGE=ghcr.io/jrimmer/hrmny-ssh-host:1.0.1.
+# CYTALE_IMAGE=ghcr.io/jrimmer/hrmny:1.0.2 and
+# CYTALE_SSH_HOST_IMAGE=ghcr.io/jrimmer/hrmny-ssh-host:1.0.2.
 docker compose pull      # ghcr.io/jrimmer/hrmny and ghcr.io/jrimmer/hrmny-ssh-host
 docker compose up -d
 curl -fsS https://chat.example.com/health

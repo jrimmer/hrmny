@@ -21,7 +21,10 @@ defmodule Cytale.Notifications.Preview do
   fences, heading hashes and link URLs are all presentation the app already
   does, and a preview showing `**bold**` or a bare URL is showing the source
   instead of the message. A Markdown image previews as its alt text, or
-  `[image]` when it has none. A backslash escape reads as its character
+  `[image]` when it has none. A timestamp tag (`<t:1791328800:R>`) reads as
+  the moment in UTC, `October 6, 2026 23:20 UTC`: the server does not know
+  the recipient's zone, and a relative "in 5 minutes" would be stale by the
+  time the notification is read. A backslash escape reads as its character
   (`2 \\* 3` previews as `2 * 3`), exactly as the timeline draws it.
   """
 
@@ -34,6 +37,8 @@ defmodule Cytale.Notifications.Preview do
   # never the URL, never the `!`. Runs before the link rule, which would
   # otherwise take the `[alt](url)` half and leave the `!` behind.
   @image ~r/!\[([^\]\n]*)\]\([^)\s]*(?: "[^"\n]*")?\)/
+  # Discord's timestamp tag, as the timeline parses it (`@cytale/markdown`).
+  @timestamp ~r/<t:(-?\d{1,13})(?::([tTdDfFR]))?>/
   @inline_code ~r/`([^`]*)`/
   @bold_italic ~r/(\*\*|__|\*|_)(.+?)\1/
   @strike ~r/~~(.+?)~~/
@@ -120,6 +125,7 @@ defmodule Cytale.Notifications.Preview do
     {content, slots} = set_aside(content, @escape, slots)
 
     content
+    |> String.replace(@timestamp, &timestamp_text/1)
     |> String.replace(@image, fn image ->
       case Regex.run(@image, image, capture: :all_but_first) do
         [alt] when alt != "" -> alt
@@ -131,6 +137,24 @@ defmodule Cytale.Notifications.Preview do
     |> strip_emphasis(4)
     |> restore(slots)
   end
+
+  # A tag whose instant a date cannot hold is not a tag: it stays as typed.
+  defp timestamp_text(tag) do
+    [unix | style] = Regex.run(@timestamp, tag, capture: :all_but_first)
+
+    case DateTime.from_unix(String.to_integer(unix)) do
+      {:ok, at} -> Calendar.strftime(at, timestamp_format(List.first(style, "")))
+      {:error, _} -> tag
+    end
+  end
+
+  defp timestamp_format("t"), do: "%H:%M UTC"
+  defp timestamp_format("T"), do: "%H:%M:%S UTC"
+  defp timestamp_format("d"), do: "%Y-%m-%d"
+  defp timestamp_format("D"), do: "%B %-d, %Y"
+  defp timestamp_format("F"), do: "%A, %B %-d, %Y %H:%M UTC"
+  # `f`, the default, and `R`: a countdown reads as the moment it counts to.
+  defp timestamp_format(_f_or_r), do: "%B %-d, %Y %H:%M UTC"
 
   # Emphasis nests (`~~**x**~~`, `***x***`): strip a layer at a time.
   defp strip_emphasis(content, 0), do: content

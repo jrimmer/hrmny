@@ -10,7 +10,7 @@
 #
 # Three stages:
 #   clientbuild  node:22 + pnpm  → the terminal client, installed at /opt/cytale
-#   hostbuild    golang:1.27.1   → the static SSH host binary
+#   hostbuild    golang:1.27.2   → the static SSH host binary
 #   runtime      debian:bookworm-slim + both artifacts + the entrypoint that
 #                materializes the operator's secrets where the host can unlink
 #                them
@@ -82,7 +82,7 @@ COPY packages ./packages
 # ---------------------------------------------------------------------------
 # Stage 2 — the SSH host binary
 # ---------------------------------------------------------------------------
-FROM golang:1.27.1-bookworm AS hostbuild
+FROM golang:1.27.2-bookworm AS hostbuild
 
 WORKDIR /src/apps/ssh-host
 COPY apps/ssh-host/go.mod apps/ssh-host/go.sum ./

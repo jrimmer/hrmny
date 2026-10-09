@@ -48,7 +48,9 @@
  * verbatim, and the timeline draws the picture (through the server's media
  * proxy) — as it draws a bare URL as a link. The typed `[text](url)` link
  * shortcut therefore stands aside after a `!` ({@link COMPOSER_LINK}), and an
- * image in stored Markdown loads back as that same text.
+ * image in stored Markdown loads back as that same text. A timestamp tag
+ * (`<t:1791328800:R>`) is held the same way: the composer shows the tag, the
+ * timeline shows the time.
  */
 import {
   $createLineBreakNode,
@@ -328,6 +330,7 @@ export function normalizeInline(nodes: readonly InlineNode[], f = 0, b = new Inl
         b.push({ k: 'code', s: node.text, f });
         break;
       case 'image':
+      case 'timestamp':
         b.text(node.source, f);
         break;
     }
@@ -1188,6 +1191,7 @@ function appendInline(parent: ElementNode, nodes: readonly InlineNode[], f = 0):
         appendText(parent, node.text, IS_CODE | f);
         break;
       case 'image':
+      case 'timestamp':
         // Held as its markup, exactly as typed (see the module comment).
         appendText(parent, node.source, f);
         break;

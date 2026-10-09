@@ -32,3 +32,13 @@ export {
   type MentionResolver,
 } from './parse.js';
 export { isOpenableLinkHref } from './links.js';
+export {
+  DEFAULT_TIMESTAMP_STYLE,
+  formatTimestamp,
+  isValidUnixSeconds,
+  relativeRefreshMs,
+  timestampPlainText,
+  type TimestampFormatOptions,
+  type TimestampNode,
+  type TimestampStyle,
+} from './timestamp.js';

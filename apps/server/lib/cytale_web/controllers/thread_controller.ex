@@ -62,7 +62,7 @@ defmodule CytaleWeb.ThreadController do
       threads =
         Threads.Thread.list_in_channel(channel_id)
         |> then(fn list -> if include_archived, do: list, else: Enum.reject(list, & &1.archived) end)
-        |> Enum.map(&thread_json/1)
+        |> with_previews()
 
       json(conn, %{"threads" => threads})
     else
@@ -366,6 +366,53 @@ defmodule CytaleWeb.ThreadController do
       "message_count" => t.message_count || 0,
       "latest_reply_at" => t.latest_reply_at && DateTime.to_iso8601(t.latest_reply_at),
       "created_at" => t.created_at && DateTime.to_iso8601(t.created_at)
+    }
+  end
+
+  # The roster's previews (owner direction 2026-10-08): the message a thread
+  # was started from and its latest reply, so a row can say what the thread is
+  # about when its name does not (`thread-388032`) and who spoke last. Both
+  # messages live in the parent channel's partition; every row's pair is read
+  # in batches of 50, which keeps each `IN` list under ScyllaDB's 100-key
+  # restriction however many threads the channel holds. A message that is gone
+  # reads as null.
+  @preview_batch 50
+  @preview_chars 300
+
+  defp with_previews(threads) do
+    found =
+      threads
+      |> Enum.flat_map(fn t ->
+        for id <- [t.parent_message_id, t.latest_reply_id], id != nil, do: {t.channel_id, id}
+      end)
+      |> Enum.uniq()
+      |> Enum.chunk_every(@preview_batch)
+      |> Enum.reduce(%{}, fn chunk, acc -> Map.merge(acc, Messages.get_many(chunk)) end)
+
+    Enum.map(threads, fn t ->
+      thread_json(t)
+      |> Map.put("starter", preview_json(Map.get(found, {t.channel_id, t.parent_message_id})))
+      |> Map.put("latest_reply", t.latest_reply_id && preview_json(Map.get(found, {t.channel_id, t.latest_reply_id})))
+    end)
+  end
+
+  defp preview_json(nil), do: nil
+
+  defp preview_json(m) do
+    %{
+      "id" => Integer.to_string(m.id),
+      "author_id" => Integer.to_string(m.author_id),
+      # A webhook's per-message name, which the roster cannot know.
+      "author_name" => m.author_override && m.author_override["username"],
+      "content" => String.slice(m.content || "", 0, @preview_chars),
+      # An embed-only message (a bot's card) is named by its first title.
+      "embed_title" =>
+        Enum.find_value(m.embeds || [], fn
+          %{"title" => title} when is_binary(title) and title != "" -> String.slice(title, 0, @preview_chars)
+          _ -> nil
+        end),
+      "attachment_count" => length(m.attachments || []),
+      "created_at" => m.created_at && DateTime.to_iso8601(m.created_at)
     }
   end
 end

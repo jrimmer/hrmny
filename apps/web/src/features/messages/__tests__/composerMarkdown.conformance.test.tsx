@@ -455,6 +455,8 @@ const IMPORTED: Case[] = [
   { name: 'an image (with a title) loads as its markup', md: 'plan ![wb](https://x.dev/wb.png "Q3") **now**', tree: 'p["plan ![wb](https://x.dev/wb.png \\"Q3\\") " b:"now"]', wire: 'plan ![wb](https://x.dev/wb.png "Q3") **now**', paint: ['bold'] },
   { name: 'an image inside bold keeps the mark', md: '**![x](https://x.dev/i.png)**', tree: 'p[b:"![x](https://x.dev/i.png)"]', wire: '**![x](https://x.dev/i.png)**', paint: ['bold'] },
   { name: 'an image in a list item and a quote', md: '- ![a](https://x.dev/a.png)\n> ![b](https://x.dev/b.png)', tree: 'ul{li["![a](https://x.dev/a.png)"]} q["![b](https://x.dev/b.png)"]', wire: '- ![a](https://x.dev/a.png)\n> ![b](https://x.dev/b.png)', paint: ['ul', 'quote'] },
+  // A timestamp tag loads as the tag the author typed, and posts unchanged
+  { name: 'a timestamp tag loads as its markup', md: 'answer <t:1791328800:R> **now**', tree: 'p["answer <t:1791328800:R> " b:"now"]', wire: 'answer <t:1791328800:R> **now**', paint: ['bold'] },
   { name: 'an escaped `!` before a link stays a `!` and a link', md: '\\![x](https://x.dev/i.png)', tree: 'p["!" a(https://x.dev/i.png)["x"]]', wire: '\\![x](https://x.dev/i.png)', paint: ['link'] },
   {
     name: 'a whole message of every block',
@@ -494,6 +496,23 @@ describe('composer Markdown behaviour', () => {
     const link = timelineDom(out).querySelector('a[data-link="image"]');
     expect(link?.getAttribute('href')).toBe('https://x.dev/c.png');
     expect(link?.textContent).toBe('a cat');
+  });
+
+  it('a typed timestamp tag posts as typed and the timeline parses it as a TIMESTAMP node', async () => {
+    const editor = mount();
+    await type(editor, 'answer <t:1791328800:R> or not');
+    const out = wire(editor);
+    expect(out).toBe('answer <t:1791328800:R> or not');
+    const [block] = parseMarkdownBlocks(out);
+    expect(block).toMatchObject({
+      type: 'inline',
+      nodes: [
+        { type: 'text', text: 'answer ' },
+        { type: 'timestamp', unix: 1791328800, style: 'R' },
+        { type: 'text', text: ' or not' },
+      ],
+    });
+    expect(timelineDom(out).querySelector('time.md-timestamp')).not.toBeNull();
   });
 
   it('Backspace at the start of a later list item joins it to the item above', async () => {

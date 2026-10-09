@@ -8,11 +8,11 @@
  *
  *   **bold**  *italic*  __underline__  ~~strike~~  `code`  [text](url)
  *   ![alt](https://image.url)  <@snowflake>  <#snowflake>  https://bare.url
- *   <https://angle.url>
+ *   <https://angle.url>  <t:unix>  <t:unix:R>
  *
  * Line breaks survive as `text` nodes. BOTH levels live in this module, and
  * both are in scope: the inline parser returns {@link InlineNode} values
- * (`text`, `mention`, `channel`, `code`, `link`, `image`, and the four
+ * (`text`, `mention`, `channel`, `timestamp`, `code`, `link`, `image`, and the four
  * emphasis kinds `bold`, `italic`, `underline`, `strike`), and the block
  * parser below —
  * {@link parseMarkdownBlocks} — returns {@link MarkdownBlock} values and
@@ -56,8 +56,17 @@
  * `![x](javascript:…)` — is not an image: the `!` stays text and the rest
  * parses as the link it always was.
  *
- * Token precedence at any position: escape, mention, channel, angle autolink,
- * code, image, link, bare URL, then emphasis. A bare URL ends at a blank, `<`, `*`,
+ * ## Timestamps
+ *
+ * `<t:UNIX>` and `<t:UNIX:STYLE>` are Discord's timestamp tag: a `timestamp`
+ * node carrying the instant (seconds) and the style (`t T d D f F R`, `f` when
+ * none is named) — see `timestamp.ts` for the styles and their formatting.
+ * An unknown style letter, or an instant a `Date` cannot hold, is not a tag:
+ * it stays text. The node keeps its exact `source` for the composer, which
+ * holds the tag as typed.
+ *
+ * Token precedence at any position: escape, mention, channel, timestamp,
+ * angle autolink, code, image, link, bare URL, then emphasis. A bare URL ends at a blank, `<`, `*`,
  * `~`, a backtick (GitHub's rule) or a backslash escape, so
  * `https://x.dev**b**` is the link followed by bold `b`.
  *
@@ -67,6 +76,14 @@
  * <Text> has no markup to inject into). The tree can therefore never carry
  * markup semantics by accident.
  */
+
+import {
+  DEFAULT_TIMESTAMP_STYLE,
+  isValidUnixSeconds,
+  timestampPlainText,
+  type TimestampNode,
+  type TimestampStyle,
+} from './timestamp.js';
 
 /** Resolves a mention snowflake to a display name; undefined leaves the id. */
 export type MentionResolver = (userId: string) => string | undefined;
@@ -97,6 +114,7 @@ export type InlineNode =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'mention'; readonly userId: string }
   | { readonly type: 'channel'; readonly channelId: string }
+  | TimestampNode
   | { readonly type: 'code'; readonly text: string }
   | { readonly type: 'link'; readonly text: string; readonly href: string }
   | ImageNode
@@ -119,6 +137,7 @@ export interface ImageNode {
 export const INLINE_NODE_TYPES = [
   'mention',
   'channel',
+  'timestamp',
   'code',
   'image',
   'link',
@@ -150,6 +169,8 @@ const ESCAPE_AT = /\\([!-/:-@[-`{-~])/y;
 const MENTION_AT = /<@(\d{1,19})>/y;
 /** Discord's channel token: `<#id>` names a channel by id, never by name. */
 const CHANNEL_AT = /<#(\d{1,19})>/y;
+/** Discord's timestamp tag: `<t:1791328800>` or `<t:1791328800:R>`. */
+const TIMESTAMP_AT = /<t:(-?\d{1,13})(?::([tTdDfFR]))?>/y;
 /** `<https://…>` — the angle form links the URL verbatim. */
 const ANGLE_AUTOLINK_AT = /<(https?:\/\/[^>\s]+)>/y;
 const CODE_AT = /`([^`]+)`/y;
@@ -218,6 +239,11 @@ function opaqueAt(text: string, at: number, urls = true): Opaque | null {
     if (m) return { end: at + m[0].length, nodes: [{ type: 'mention', userId: m[1]! }] };
     m = sticky(CHANNEL_AT, text, at);
     if (m) return { end: at + m[0].length, nodes: [{ type: 'channel', channelId: m[1]! }] };
+    m = sticky(TIMESTAMP_AT, text, at);
+    if (m && isValidUnixSeconds(Number(m[1]))) {
+      const style = (m[2] ?? DEFAULT_TIMESTAMP_STYLE) as TimestampStyle;
+      return { end: at + m[0].length, nodes: [{ type: 'timestamp', unix: Number(m[1]), style, source: m[0] }] };
+    }
     m = sticky(ANGLE_AUTOLINK_AT, text, at);
     if (m) return { end: at + m[0].length, nodes: [{ type: 'link', text: m[1]!, href: m[1]! }] };
     return null;
@@ -370,6 +396,10 @@ function inlinePlainText(nodes: readonly InlineNode[]): string {
         case 'image':
           // A reader sees the picture; a line of text says what it is.
           return imagePlainText(node);
+        case 'timestamp':
+          // Nothing re-renders plain text, so a countdown reads as the
+          // moment it counts to.
+          return timestampPlainText(node);
         default:
           return node.text;
       }

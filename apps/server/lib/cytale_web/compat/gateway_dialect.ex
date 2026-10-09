@@ -1611,6 +1611,14 @@ defmodule CytaleWeb.Compat.GatewayDialect do
   # (Discord's GUILD_CREATE carries an unbounded list; Cytale truncates so a
   # thread-heavy workspace cannot bloat the Identify burst — documented
   # divergence in compat.md).
+  #
+  # The cap keeps the threads most likely to be spoken in: open ones first,
+  # then the most recently active. It used to keep whichever 100 came first in
+  # channel order, so a bot that reconnected in a busy workspace could lose a
+  # thread it had answered in a day earlier; the next reply there looked like
+  # a plain channel message, and Hermes tried to start a thread inside the
+  # thread (2026-10-08). A thread the cap still drops is announced on its next
+  # message (`thread_announcement/2`).
   @max_guild_threads 100
 
   @spec guild_threads(map(), [map()]) :: [map()]
@@ -1618,7 +1626,34 @@ defmodule CytaleWeb.Compat.GatewayDialect do
     visible_channels
     |> Enum.map(& &1.channel_id)
     |> Enum.flat_map(&Threads.Thread.list_in_channel/1)
+    # Ties (same-millisecond stamps) fall to the newer id, so the pick is stable.
+    |> Enum.sort_by(fn t -> {!!t.archived, -activity_us(t), -t.thread_id} end)
     |> Enum.take(@max_guild_threads)
+  end
+
+  defp activity_us(t) do
+    case t.latest_reply_at || t.created_at do
+      %DateTime{} = at -> DateTime.to_unix(at, :microsecond)
+      _ -> 0
+    end
+  end
+
+  @doc """
+  THREAD_CREATE for a thread this session was never told about, sent just
+  before the first message from it. Discord's GUILD_CREATE lists every open
+  thread; ours stops at #{@max_guild_threads}, so without this a library
+  meets a message whose channel it has no record of, and discord.py hands it
+  over as a plain channel (2026-10-08: Hermes tried to start a thread inside
+  the thread). No `newly_created`: the thread is not new, and Discord sends the
+  same shape when a thread becomes visible to a client (discord.py files it as
+  a join). `nil` when the thread row is gone.
+  """
+  @spec thread_announcement(String.t(), String.t() | nil) :: map() | nil
+  def thread_announcement(thread_id, guild_id) do
+    case load_thread(thread_id) do
+      nil -> nil
+      row -> MessageCodec.thread_channel(row, guild_id)
+    end
   end
 
   # gateway_base_url is ALREADY the full shared URL (GatewayUrl.ws_url at

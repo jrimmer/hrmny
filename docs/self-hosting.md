@@ -204,7 +204,7 @@ its own HSTS, keep the two identical. Check:
 
 ```bash
 curl -fsS https://chat.example.com/health
-# {"status":"ok","version":"1.0.1"}  (no node identity)
+# {"status":"ok","version":"1.0.2"}  (no node identity)
 
 curl -fsS https://chat.example.com/ | grep -o '<title>Hrmny</title>'
 # <title>Hrmny</title>

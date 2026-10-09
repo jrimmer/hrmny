@@ -387,7 +387,11 @@ was not a Discord field at all.
 Discord libraries (discord.js) build their thread cache from it at
 connect. Divergences: the list is capped at **100 threads per guild**
 (Discord's GUILD_CREATE is unbounded — Cytale truncates so a thread-heavy
-workspace cannot bloat the Identify burst), `joined` is always `false`
+workspace cannot bloat the Identify burst). The cap keeps open threads
+before archived ones, most recently active first, and a thread it leaves out
+is announced with a `THREAD_CREATE` (no `newly_created`) just before the
+first message from it, so a client never meets a thread message from a
+channel it has no record of. `joined` is always `false`
 (thread follow state is not part of the compat session surface),
 `auto_archive_duration` is a **fixed 1440** (Discord's default — Cytale has
 no archive schedule; the key is sent because the parser requires it), and

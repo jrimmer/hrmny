@@ -795,14 +795,148 @@
 }
 
 .threads-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* Today / This week / Older: a small caps label trailed by a hairline. */
+.threads-list-group-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 6px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.threads-list-group-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-line);
+}
+
+.threads-list-rows {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  gap: 2px;
+}
+
+/* A row: no box at rest, the hover surface only (owner, 2026-10-08). */
+.threads-list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--duration-control) var(--shell-ease);
+}
+
+.threads-list-row:hover,
+.threads-list-row:focus-visible {
+  background: var(--color-surface-hover);
+}
+
+.threads-list-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+.threads-list-row .avatar {
+  flex: none;
+}
+
+.threads-list-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.threads-list-row-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.threads-list-unread {
+  flex: none;
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.threads-list-subject,
+.threads-list-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.threads-list-subject {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.threads-list-row[data-unread='true'] .threads-list-subject,
+.threads-list-row[data-unread='true'] .threads-list-last-at {
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.threads-list-archived {
+  flex: none;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.threads-list-dates {
+  flex: none;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.threads-list-preview {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.threads-list-preview-author {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.threads-list-count {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
 }
 
 .modal-panel .threads-list {
@@ -3279,6 +3413,15 @@ select.modal-input {
 .mention:focus-visible {
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
   text-decoration: underline;
+}
+
+/* `<t:…>` — Discord's timestamp chip: the instant in the reader's own zone,
+   set off from prose without reading as code or as a link. */
+.md-timestamp {
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  padding: 0 3px;
+  white-space: nowrap;
 }
 
 .inline-code {

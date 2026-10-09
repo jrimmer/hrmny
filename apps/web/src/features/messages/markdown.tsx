@@ -7,7 +7,7 @@
  *
  *   inline:  **bold**  *italic*  ***bold italic***  __underline__  ~~strike~~
  *            `code`  [text](url)  ![alt](https://…)  <@snowflake>  <#snowflake>
- *            \* (escape)
+ *            <t:unix:R> (a timestamp; `R` counts live)  \* (escape)
  *   block:   ``` fenced code ```  (with an optional language)
  *            # .. ###### ATX headings
  *            > blockquotes (and >>> to the end), - / 1. lists, - [ ] tasks
@@ -43,6 +43,7 @@ import {
   type MentionResolver,
 } from '@cytale/markdown';
 
+import { MarkdownTimestamp } from './MarkdownTimestamp.js';
 import { instancePermalinkTarget, type InstancePermalinkTarget } from './messagePermalink.js';
 
 export type { MentionResolver };
@@ -128,6 +129,8 @@ function renderNode(
           </span>
         )
       );
+    case 'timestamp':
+      return <MarkdownTimestamp key={key} node={node} />;
     case 'code':
       return (
         <code key={key} className="inline-code">

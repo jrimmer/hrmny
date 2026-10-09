@@ -71,6 +71,58 @@ defmodule CytaleWeb.ThreadControllerTest do
     assert is_binary(thread["latest_reply_at"])
   end
 
+  describe "roster previews (2026-10-08)" do
+    test "each row carries its start message and its latest reply", %{
+      conn: conn,
+      user: user,
+      ch_id: ch_id,
+      msg_id: msg_id,
+      thread_id: thread_id
+    } do
+      [before] = Jason.decode!(get(conn, "/api/v1/channels/#{ch_id}/threads").resp_body)["threads"]
+      assert %{"id" => ^msg_id, "content" => "seed", "embed_title" => nil, "attachment_count" => 0} = before["starter"]
+      assert before["starter"]["author_id"] == Integer.to_string(user.user_id)
+      assert before["latest_reply"] == nil
+
+      post(conn, "/api/v1/threads/#{thread_id}/messages", %{"content" => "first reply"})
+      second = post(conn, "/api/v1/threads/#{thread_id}/messages", %{"content" => "**second** reply"})
+      second_id = Jason.decode!(second.resp_body)["message"]["id"]
+
+      [row] = Jason.decode!(get(conn, "/api/v1/channels/#{ch_id}/threads").resp_body)["threads"]
+      assert row["starter"]["content"] == "seed"
+      # The NEWEST reply, raw: the client strips markup the way every preview does.
+      assert %{"id" => ^second_id, "content" => "**second** reply", "author_name" => nil} = row["latest_reply"]
+      assert is_binary(row["latest_reply"]["created_at"])
+    end
+
+    test "a long body is cut to 300 characters", %{conn: conn, ch_id: ch_id} do
+      long = String.duplicate("é", 400)
+      m = post(conn, "/api/v1/channels/#{ch_id}/messages", %{"content" => long})
+      assert m.status in [200, 201], m.resp_body
+      m_id = Jason.decode!(m.resp_body)["message"]["id"]
+      t = post(conn, "/api/v1/channels/#{ch_id}/messages/#{m_id}/threads", %{"name" => "long"})
+      assert t.status in [200, 201], t.resp_body
+      t_id = Jason.decode!(t.resp_body)["thread"]["id"]
+
+      rows = Jason.decode!(get(conn, "/api/v1/channels/#{ch_id}/threads").resp_body)["threads"]
+      row = Enum.find(rows, &(&1["id"] == t_id))
+      assert row["starter"]["id"] == m_id
+      assert String.length(row["starter"]["content"]) == 300
+    end
+
+    test "more threads than one read batch all get their previews", %{conn: conn, ch_id: ch_id} do
+      for i <- 1..55 do
+        m = post(conn, "/api/v1/channels/#{ch_id}/messages", %{"content" => "topic #{i}"})
+        m_id = Jason.decode!(m.resp_body)["message"]["id"]
+        post(conn, "/api/v1/channels/#{ch_id}/messages/#{m_id}/threads", %{"name" => "thread-#{i}"})
+      end
+
+      rows = Jason.decode!(get(conn, "/api/v1/channels/#{ch_id}/threads").resp_body)["threads"]
+      assert length(rows) == 56
+      assert Enum.all?(rows, &is_binary(&1["starter"]["content"]))
+    end
+  end
+
   test "mark unread: explicit null last_read_id clears; absent leaves it alone", %{
     conn: conn,
     user: user,

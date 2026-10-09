@@ -17,6 +17,7 @@ import {
   isEmphasisNode,
   isOpenableLinkHref,
   parseInlineMarkdown,
+  timestampPlainText,
   type EmphasisType,
   type InlineNode,
   type MentionResolver,
@@ -81,6 +82,11 @@ export function inlineRunsFromNodes(
       // `<#id>`: no channel resolver is wired on mobile yet — the id shows,
       // as an unresolved mention's does.
       return [withMarks({ kind: 'channel', text: channelDisplayName(node.channelId) })];
+    }
+    if (node.type === 'timestamp') {
+      // `<t:…>`: this client has no ticking label yet, so a countdown (`R`)
+      // shows the moment it counts to rather than a frozen "in 5 minutes".
+      return [withMarks({ kind: 'text', text: timestampPlainText(node) })];
     }
     if (node.type === 'link') {
       return [withMarks({ kind: 'link', text: node.text, href: node.href })];

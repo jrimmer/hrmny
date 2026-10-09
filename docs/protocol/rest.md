@@ -332,6 +332,13 @@ Every send route — `POST /channels/{id}/messages`,
 bots get the same rules; only the error dialect differs.
 
 - `content` 1–4000 bytes, required unless `embeds` ride the message.
+  Discord's timestamp tag works in it: `<t:UNIX>` or `<t:UNIX:STYLE>`
+  (`t` `T` `d` `D` `f` `F` `R`, `f` by default) shows that instant in each
+  reader's own locale and time zone, and `R` counts live ("in 5 minutes",
+  "5 minutes ago"), so a prompt can say "answer <t:UNIX:R> or it won't
+  run". Push notifications show the instant in UTC. A countdown is text
+  only: to retire a prompt's buttons when time runs out, edit the message
+  with `disabled: true` on them, as on Discord.
 - `embeds` / `components`: from machine authors (see
   [embeds](#message-json-embeds-optional-key)); a person's embeds are a
   `400 embeds_not_allowed`, a person's components are ignored.
@@ -776,7 +783,7 @@ Lifecycle notes:
 
 | Endpoint | Method | Description |
 | --- | --- | --- |
-| `/channels/{id}/threads` | GET | Channel thread roster. Archived threads are excluded; `?include_archived=true` includes them. Rows carry `message_count` + `latest_reply_at` (the seed-message indicator's summary). |
+| `/channels/{id}/threads` | GET | Channel thread roster. Archived threads are excluded; `?include_archived=true` includes them. Rows carry `message_count` + `latest_reply_at` (the seed-message indicator's summary), plus `starter` (the message the thread was started from) and `latest_reply` (its newest reply), each `{id, author_id, author_name, content, embed_title, attachment_count, created_at}` or `null`: `content` is the raw markdown cut to 300 characters, `embed_title` the first embed's title, `author_name` a webhook's per-message name. |
 | `/threads/{id}` | PATCH | Archive (`{archived: bool}` — the only thread mutation served; rename is not, so a body without `archived` is `400`). The thread's creator or a parent-channel moderator (`manage_messages`/`manage_threads`), else `403`. Emits [ThreadUpdate](./events.md#threadupdate). Archiving is roster-hiding, not an access change: the thread leaves the default listing and stays directly readable. |
 | `/threads/{id}/messages` | GET / POST | Thread history — same cursors and envelope as channel history, read from the thread's own index, so pages are dense and a page shorter than `limit` means nothing further that way — / reply (also emits channel [MessageCreate](./events.md#messagecreate) with `thread_id` set + [ThreadMessageCreate](./events.md#threadmessagecreate)). |
 | `/threads/{id}/members` | GET / POST / DELETE | Follow state: list / join / leave. |

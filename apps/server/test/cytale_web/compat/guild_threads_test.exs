@@ -263,6 +263,192 @@ defmodule CytaleWeb.Compat.GuildThreadsTest do
   end
 
   # ---------------------------------------------------------------------------
+  # 2026-10-08 (Hermes): a bot must know the thread a message comes from
+  # ---------------------------------------------------------------------------
+
+  describe "threads a bot was not told about (2026-10-08)" do
+    defp guild_threads!(conn, ws) do
+      frame = next_json!(conn, 5_000)
+      assert frame["t"] == "GUILD_CREATE"
+      assert frame["d"]["id"] == Integer.to_string(ws.workspace_id)
+      frame["d"]["threads"]
+    end
+
+    defp thread_reply!(channel_id, thread_id, author_id, content) do
+      {:ok, msg} =
+        Messages.create_message(%{
+          channel_id: channel_id,
+          author_id: author_id,
+          content: content,
+          thread_id: thread_id
+        })
+
+      assert Cytale.Workspaces.FanOut.deliver(channel_id, {"ThreadMessageCreate", Cytale.Messages.Message.to_wire(msg)}) >=
+               1
+
+      msg
+    end
+
+    test "the first reply from an unknown thread comes after its THREAD_CREATE, and only the first", %{
+      port: port,
+      parent: parent,
+      ws: ws,
+      general: general
+    } do
+      {:ok, agent} =
+        AgentGrants.mint_all(parent.user_id, :agent, run_unique("Late Thread Agent"), %{
+          "actions" => ["read"],
+          "channels" => [Integer.to_string(general.channel_id)]
+        })
+
+      conn = connect!(port, v: 10)
+      bot_identify!(conn, agent.token)
+      assert guild_threads!(conn, ws) == []
+      drain!(conn)
+
+      # Made without a THREAD_CREATE reaching this session, the shape of a
+      # thread the GUILD_CREATE cap left out.
+      thread = create_thread!(general.channel_id, parent.user_id, "tunarr")
+      tid = Integer.to_string(thread.thread_id)
+
+      msg = thread_reply!(general.channel_id, thread.thread_id, parent.user_id, "still not streaming")
+
+      announced = next_json!(conn, 5_000)
+      assert announced["t"] == "THREAD_CREATE"
+      assert announced["d"]["id"] == tid
+      assert announced["d"]["type"] == 11
+      assert announced["d"]["parent_id"] == Integer.to_string(general.channel_id)
+      assert announced["d"]["guild_id"] == Integer.to_string(ws.workspace_id)
+      assert announced["d"]["name"] == "tunarr"
+      # Not new: discord.py files it as a join, not on_thread_create.
+      refute Map.has_key?(announced["d"], "newly_created")
+
+      reply = next_json!(conn, 5_000)
+      assert reply["t"] == "MESSAGE_CREATE"
+      assert reply["d"]["channel_id"] == tid
+      assert reply["d"]["id"] == Integer.to_string(msg.id)
+      assert reply["s"] == announced["s"] + 1
+
+      thread_reply!(general.channel_id, thread.thread_id, parent.user_id, "and again")
+      again = next_json!(conn, 5_000)
+      assert again["t"] == "MESSAGE_CREATE"
+      assert again["d"]["channel_id"] == tid
+    end
+
+    test "a thread from the GUILD_CREATE inventory is not announced again", %{
+      port: port,
+      parent: parent,
+      ws: ws,
+      general: general
+    } do
+      thread = create_thread!(general.channel_id, parent.user_id, "already known")
+      {:ok, agent} = AgentGrants.mint_all(parent.user_id, :agent, run_unique("Known Thread Agent"))
+
+      conn = connect!(port, v: 10)
+      bot_identify!(conn, agent.token)
+
+      guilds =
+        for _ <- 1..2 do
+          frame = next_json!(conn, 5_000)
+          assert frame["t"] == "GUILD_CREATE"
+          {frame["d"]["id"], frame["d"]}
+        end
+        |> Map.new()
+
+      tid = Integer.to_string(thread.thread_id)
+      assert [%{"id" => ^tid}] = Map.fetch!(guilds, Integer.to_string(ws.workspace_id))["threads"]
+      drain!(conn)
+
+      thread_reply!(general.channel_id, thread.thread_id, parent.user_id, "a reply")
+      reply = next_json!(conn, 5_000)
+      assert reply["t"] == "MESSAGE_CREATE"
+      assert reply["d"]["channel_id"] == tid
+    end
+
+    test "a thread archived after it was announced is announced again on its next reply", %{
+      port: port,
+      parent: parent,
+      ws: ws,
+      general: general
+    } do
+      thread = create_thread!(general.channel_id, parent.user_id, "archived later")
+      tid = Integer.to_string(thread.thread_id)
+      {:ok, agent} = AgentGrants.mint_all(parent.user_id, :agent, run_unique("Archive Agent"))
+
+      conn = connect!(port, v: 10)
+      bot_identify!(conn, agent.token)
+
+      guilds =
+        for _ <- 1..2 do
+          frame = next_json!(conn, 5_000)
+          {frame["d"]["id"], frame["d"]}
+        end
+        |> Map.new()
+
+      assert [%{"id" => ^tid}] = Map.fetch!(guilds, Integer.to_string(ws.workspace_id))["threads"]
+      drain!(conn)
+
+      # discord.py drops a thread from its cache on an archived THREAD_UPDATE,
+      # and a reply does not unarchive it here.
+      :ok = Thread.set_archived(thread.thread_id, true)
+
+      assert Cytale.Workspaces.FanOut.deliver(
+               general.channel_id,
+               {"ThreadUpdate", Cytale.Threads.Events.thread_update(thread, %{archived: true})}
+             ) >= 1
+
+      update = next_json!(conn, 5_000)
+      assert update["t"] == "THREAD_UPDATE"
+      assert update["d"]["thread_metadata"]["archived"] == true
+
+      thread_reply!(general.channel_id, thread.thread_id, parent.user_id, "a reply after archiving")
+
+      announced = next_json!(conn, 5_000)
+      assert announced["t"] == "THREAD_CREATE"
+      assert announced["d"]["id"] == tid
+
+      reply = next_json!(conn, 5_000)
+      assert reply["t"] == "MESSAGE_CREATE"
+      assert reply["d"]["channel_id"] == tid
+    end
+
+    test "the GUILD_CREATE cap keeps open threads, most recently active first", %{
+      port: port,
+      parent: parent,
+      ws: ws,
+      general: general,
+      hidden: hidden
+    } do
+      # Spread over two channels so channel order alone would pick wrongly:
+      # `hidden` (listed second) holds the newest threads.
+      older = for i <- 1..60, do: create_thread!(general.channel_id, parent.user_id, "older #{i}")
+      newer = for i <- 1..45, do: create_thread!(hidden.channel_id, parent.user_id, "newer #{i}")
+      archived = List.last(newer)
+      :ok = Thread.set_archived(archived.thread_id, true)
+
+      {:ok, agent} =
+        AgentGrants.mint_all(parent.user_id, :agent, run_unique("Cap Agent"), %{
+          "actions" => ["read"],
+          "channels" => [Integer.to_string(general.channel_id), Integer.to_string(hidden.channel_id)]
+        })
+
+      conn = connect!(port, v: 10)
+      bot_identify!(conn, agent.token)
+      ids = Enum.map(guild_threads!(conn, ws), & &1["id"])
+
+      assert length(ids) == 100
+
+      expected =
+        (Enum.reverse(newer -- [archived]) ++ Enum.reverse(older))
+        |> Enum.take(100)
+        |> Enum.map(&Integer.to_string(&1.thread_id))
+
+      assert ids == expected
+      refute Integer.to_string(archived.thread_id) in ids
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # C-3: the compat typing route fans out to NATIVE sessions
   # ---------------------------------------------------------------------------
 
@@ -367,6 +553,12 @@ defmodule CytaleWeb.Compat.GuildThreadsTest do
       assert Cytale.Workspaces.FanOut.deliver(general.channel_id, {"MessageCreate", wire}) >= 1
 
       assert Cytale.Workspaces.FanOut.deliver(general.channel_id, {"ThreadMessageCreate", wire}) >= 1
+
+      # The thread was made after Identify without a THREAD_CREATE, so the
+      # session first hears about it (2026-10-08 Hermes fix).
+      announced = next_json!(conn, 5_000)
+      assert announced["t"] == "THREAD_CREATE"
+      assert announced["d"]["id"] == Integer.to_string(thread.thread_id)
 
       # Exactly ONE dispatch survives: the thread leg, carried on the THREAD
       # channel id (the parent-anchored copy would render the reply inline in

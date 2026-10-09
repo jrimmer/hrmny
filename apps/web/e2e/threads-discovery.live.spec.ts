@@ -114,6 +114,54 @@ test.describe('threads discovery (#83)', () => {
     await expect(page.getByTestId('thread-dock')).toBeVisible({ timeout: 15_000 });
     await page.screenshot({ path: join(OUT, 'opened-from-roster-1x.png') });
   });
+
+  // The roster row (owner direction 2026-10-08): a bot-made name like
+  // `thread-388032` says nothing, so the row is named by the message the
+  // thread started from and previews the newest reply; a chosen name stays.
+  test('roster rows name a thread by its start message and preview the last reply', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    mkdirSync(OUT, { recursive: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await registerVerifiedUser(page, 'th83r');
+
+    const token = await accessToken(page);
+    const auth = { authorization: `Bearer ${token}` };
+    const { chId } = await seedWorkspaceWithChannel(request, token, `th83r-${Date.now().toString(36)}`);
+
+    const thread = async (content: string, name: string, replies: string[]) => {
+      const m = await request.post(`${API}/channels/${chId}/messages`, { headers: auth, data: { content } });
+      const id = (await m.json()).message.id as string;
+      const t = await request.post(`${API}/channels/${chId}/messages/${id}/threads`, { headers: auth, data: { name } });
+      const threadId = (await t.json()).thread.id as string;
+      for (const reply of replies) {
+        await request.post(`${API}/threads/${threadId}/messages`, { headers: auth, data: { content: reply } });
+      }
+      return threadId;
+    };
+    const generated = await thread('Overnight **transcript**, DNC line 2: 38 minutes', 'thread-388032', [
+      'logs 1–40 are ready',
+      'Shredded.',
+    ]);
+    const named = await thread('Taping the stairwell door latches', 'Door tape', ['he will never notice twice']);
+
+    await reloadIntoFirstWorkspace(page);
+    await page.waitForSelector('[data-testid="message-item"]', { timeout: 20_000 });
+    await page.getByTestId('rail-icon-threads').click();
+
+    const generatedRow = page.getByTestId(`threads-list-row-${generated}`);
+    await expect(generatedRow).toBeVisible({ timeout: 15_000 });
+    await expect(generatedRow).toContainText('Overnight transcript, DNC line 2: 38 minutes');
+    await expect(generatedRow).not.toContainText('thread-388032');
+    await expect(generatedRow).toContainText('Shredded.');
+    await expect(generatedRow).toContainText('2 replies');
+
+    const namedRow = page.getByTestId(`threads-list-row-${named}`);
+    await expect(namedRow).toContainText('Door tape');
+    await expect(namedRow).toContainText('he will never notice twice');
+    await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
+
+    await page.getByTestId('threads-list').screenshot({ path: join(OUT, 'roster-rows-1x.png') });
+  });
 });
 
 /**

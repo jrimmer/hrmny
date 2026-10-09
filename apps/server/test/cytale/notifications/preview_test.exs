@@ -12,6 +12,37 @@ defmodule Cytale.Notifications.PreviewTest do
 
   alias Cytale.Notifications.Preview
 
+  describe "timestamp tags (<t:unix:style>)" do
+    # 2026-10-06 23:20:00 UTC, a Tuesday.
+    @at 1_791_328_800
+
+    test "the default style reads as the date and time in UTC" do
+      assert Preview.body("deploy at <t:#{@at}>") == "deploy at October 6, 2026 23:20 UTC"
+    end
+
+    test "a countdown reads as the moment it counts to, never a stale \"in 5 minutes\"" do
+      assert Preview.body("answer <t:#{@at}:R> or it will NOT run") ==
+               "answer October 6, 2026 23:20 UTC or it will NOT run"
+    end
+
+    test "each style has its own shape" do
+      assert Preview.body("<t:#{@at}:t>") == "23:20 UTC"
+      assert Preview.body("<t:#{@at}:T>") == "23:20:00 UTC"
+      assert Preview.body("<t:#{@at}:d>") == "2026-10-06"
+      assert Preview.body("<t:#{@at}:D>") == "October 6, 2026"
+      assert Preview.body("<t:#{@at}:F>") == "Tuesday, October 6, 2026 23:20 UTC"
+    end
+
+    test "inside a code span, or with an unknown style, it stays as typed" do
+      assert Preview.body("`<t:#{@at}:R>`") == "<t:#{@at}:R>"
+      assert Preview.body("<t:#{@at}:x>") == "<t:#{@at}:x>"
+    end
+
+    test "an instant no date can hold stays as typed" do
+      assert Preview.body("<t:9999999999999>") == "<t:9999999999999>"
+    end
+  end
+
   describe "channel references (<#id>)" do
     test "a channel the caller named becomes #name" do
       assert Preview.body("see <#77> now", channel_names: %{77 => "general"}) == "see #general now"

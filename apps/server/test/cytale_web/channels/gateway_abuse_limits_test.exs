@@ -108,10 +108,12 @@ defmodule CytaleWeb.Channels.GatewayAbuseLimitsTest do
     assert assert_closed!(conn, 3_000) == 4003
   end
 
-  test "(b) a heartbeat before Identify is not acknowledged (and does not close)", %{port: port} do
+  # discord.py beats on Hello, before Identify, and reads a missing ACK as an
+  # infinite latency; Hermes reconnected over it (2026-10-08). Discord ACKs it.
+  test "(b) a heartbeat before Identify is acknowledged (and does not close)", %{port: port} do
     conn = connect!(port)
     send_frame!(conn, 1, nil)
-    assert Cytale.Test.WSClient.recv(conn.pid, 400) == {:error, :timeout}
+    assert next_op!(conn, 11, 2_000)
 
     # The socket still identifies normally afterwards, and beats are ACKed.
     ready = identify!(conn, run_token())
@@ -119,6 +121,14 @@ defmodule CytaleWeb.Channels.GatewayAbuseLimitsTest do
     drain!(conn)
     send_frame!(conn, 1, nil)
     assert next_op!(conn, 11, 2_000)
+  end
+
+  test "(b) beating does not keep an unidentified socket past the deadline", %{port: port} do
+    put_gateway(identify_timeout_ms: 300)
+    conn = connect!(port)
+    send_frame!(conn, 1, nil)
+    assert next_op!(conn, 11, 2_000)
+    assert assert_closed!(conn, 3_000) == 4003
   end
 
   test "(b) an identified socket outlives the deadline", %{port: port} do

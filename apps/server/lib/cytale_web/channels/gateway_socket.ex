@@ -150,6 +150,11 @@ defmodule CytaleWeb.GatewaySocket do
     # `Cytale.Gateway.AuthorCache` owns the rules; one Principals/Users
     # read per author per TTL instead of per dispatch.
     author_cache: %{},
+    # Compat only: the thread ids this session has been told about (the
+    # GUILD_CREATE inventory, then THREAD_CREATE/THREAD_UPDATE). A message from
+    # a thread outside it is preceded by that thread's THREAD_CREATE
+    # (`thread_preludes/3`).
+    known_threads: MapSet.new(),
     mode: :native,
     intents: 0,
     transport_mode: nil,
@@ -539,18 +544,69 @@ defmodule CytaleWeb.GatewaySocket do
         # (hardening plan 2.3).
         fragment = if pre_encoded != nil and compat_payload === payload, do: pre_encoded, else: nil
 
+        {state, preludes} = thread_preludes(state, event_name, {name, compat_payload})
+
+        prelude_envelopes =
+          Enum.map(preludes, fn {prelude_name, prelude_payload} ->
+            {envelope, _} = buffer_dispatch(state, prelude_name, prelude_payload)
+            envelope
+          end)
+
         case buffer_dispatch(state, name, compat_payload, fragment) do
           {envelope, :ok} ->
-            {:push, encode_many(state.compressor, [envelope]), state}
+            {:push, encode_many(state.compressor, prelude_envelopes ++ [envelope]), state}
 
           {_envelope, {:error, :unknown_session}} ->
             # Record gone (expired/swept mid-flight): deliver live anyway but
             # sequence-less — the client full-syncs; nothing to resume against.
             fallback = %{op: Opcode.dispatch(), t: name, s: 0, d: compat_payload}
-            {:push, encode_many(state.compressor, [fallback]), state}
+            {:push, encode_many(state.compressor, prelude_envelopes ++ [fallback]), state}
         end
     end
   end
+
+  # A compat session must know a thread before it reads a message from it:
+  # discord.py turns a message from an unknown channel into a bare
+  # PartialMessageable, and a bot that asks "am I in a thread?" then hears no
+  # (Hermes, 2026-10-08, started a thread inside the thread). So the first
+  # thread message from outside `known_threads` goes out behind that thread's
+  # THREAD_CREATE. Only `ThreadMessageCreate` pays the lookup; channel messages
+  # never do.
+  #
+  # An archived thread leaves the set, because discord.py drops a thread from
+  # its cache when an update says it was archived, and a reply here does not
+  # unarchive it. Its next message is announced again (THREAD_CREATE caches a
+  # thread whatever its archived flag).
+  defp thread_preludes(%__MODULE__{mode: :compat} = state, _event, {t, %{"id" => id} = thread})
+       when t in ["THREAD_CREATE", "THREAD_UPDATE"] do
+    known =
+      if get_in(thread, ["thread_metadata", "archived"]) == true,
+        do: MapSet.delete(state.known_threads, id),
+        else: MapSet.put(state.known_threads, id)
+
+    {%{state | known_threads: known}, []}
+  end
+
+  defp thread_preludes(
+         %__MODULE__{mode: :compat} = state,
+         "ThreadMessageCreate",
+         {"MESSAGE_CREATE", %{"channel_id" => thread_id} = payload}
+       )
+       when is_binary(thread_id) do
+    if MapSet.member?(state.known_threads, thread_id) do
+      {state, []}
+    else
+      case GatewayDialect.thread_announcement(thread_id, payload["guild_id"]) do
+        nil ->
+          {state, []}
+
+        thread ->
+          {%{state | known_threads: MapSet.put(state.known_threads, thread_id)}, [{"THREAD_CREATE", thread}]}
+      end
+    end
+  end
+
+  defp thread_preludes(state, _event, _dispatch), do: {state, []}
 
   # -- U7 visibility: the principal-route poke (KTD4's active half) -----------
   #
@@ -1042,12 +1098,15 @@ defmodule CytaleWeb.GatewaySocket do
   # op 1 Heartbeat → op 11 HeartbeatACK
   # --------------------------------------------------------------------------
 
-  # 5b: before Identify there is no session to keep alive, so a heartbeat is
-  # not acknowledged (a pre-Identify socket cannot use beats to look healthy);
-  # it is ignored rather than refused, because Discord clients may start their
-  # heartbeat loop before their Identify lands. The Identify deadline bounds
-  # the socket either way.
-  defp op_heartbeat(%__MODULE__{session_id: nil} = state), do: push_ok(state, [])
+  # 5b: before Identify there is no session to keep alive, so a heartbeat
+  # touches nothing; the Identify deadline still closes a socket that never
+  # identifies, however often it beats. It IS acknowledged, as Discord does:
+  # discord.py sends its first heartbeat on Hello, before Identify, and until
+  # an ACK arrives its `latency` is infinite. Hermes reads that as a dead
+  # connection and reconnected over it (2026-10-08), so ignoring the beat
+  # cost a reconnect loop, not just a missing frame.
+  defp op_heartbeat(%__MODULE__{session_id: nil} = state),
+    do: push_ok(state, [Session.heartbeat_ack_frame()])
 
   defp op_heartbeat(state) do
     now_wall = System.system_time(:millisecond)
@@ -1242,7 +1301,10 @@ defmodule CytaleWeb.GatewaySocket do
         {ready, guild_creates, visible} =
           GatewayDialect.handshake(session, state.gateway_base_url, preloaded)
 
-        socket_state = %{socket_state | visible: visible}
+        known_threads =
+          for guild <- guild_creates, thread <- guild["threads"] || [], into: MapSet.new(), do: thread["id"]
+
+        socket_state = %{socket_state | visible: visible, known_threads: known_threads}
 
         # GUILD_CREATEs are real dispatches: seq-stamped + buffered so a
         # Resume replays them exactly (a reconnecting library rebuilds its

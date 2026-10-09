@@ -22,6 +22,8 @@
  *   InlineNode 'link'            its text, plus the URL when it differs
  *   InlineNode 'image'           its alt text, plus the URL (the URL alone without alt)
  *   InlineNode 'mention'         `@name` through the shared resolver
+ *   InlineNode 'timestamp'       the moment, in the reader's zone (`R` too:
+ *                                a printed line never ticks)
  *   InlineNode 'text'            literal
  *
  * The subset R26 names — emphasis, bold, inline code, fenced code blocks, and
@@ -100,6 +102,7 @@ import {
   isEmphasisNode,
   mentionDisplayName,
   parseMarkdownBlocks,
+  timestampPlainText,
   type InlineNode,
   type MarkdownBlock,
   type MentionResolver,
@@ -228,6 +231,7 @@ const NODE_STYLES: Record<InlineNode['type'], readonly TerminalStyleAtom[]> = {
   text: [],
   mention: [],
   channel: [],
+  timestamp: [],
   link: [],
   image: [],
   code: ['code'],
@@ -473,6 +477,13 @@ function piecesForNodes(
       // `<#id>` — no channel resolver reaches this printer yet, so it shows
       // the id, as an unresolved mention does.
       push(sanitizeTerminalText(channelDisplayName(node.channelId)));
+      continue;
+    }
+
+    if (node.type === 'timestamp') {
+      // `<t:…>` in the reader's zone. A printed line is never redrawn, so a
+      // countdown (`R`) prints the moment it counts to, not "in 5 minutes".
+      push(timestampPlainText(node));
       continue;
     }
 

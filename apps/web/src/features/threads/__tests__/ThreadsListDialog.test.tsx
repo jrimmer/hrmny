@@ -53,6 +53,40 @@ describe('ThreadsListDialog', () => {
     expect(onOpenThread).toHaveBeenCalledWith('t-1');
   });
 
+  it('a generated name gives way to the start message; the newest reply previews under it', async () => {
+    vi.spyOn(api, 'listThreads').mockResolvedValue([
+      {
+        ...THREAD,
+        name: 'thread-388032',
+        starter: {
+          id: 'm-1',
+          author_id: 'u-1',
+          author_name: null,
+          content: 'Overnight **transcript**, DNC line 2',
+          embed_title: null,
+          attachment_count: 0,
+          created_at: THREAD.created_at,
+        },
+        latest_reply: {
+          id: 'm-9',
+          author_id: 'u-2',
+          author_name: 'Shredder',
+          content: 'Shredded.',
+          embed_title: null,
+          attachment_count: 0,
+          created_at: THREAD.latest_reply_at,
+        },
+      } as never,
+    ]);
+    renderDialog();
+
+    const row = await screen.findByTestId('threads-list-row-t-1');
+    expect(row.textContent).toContain('Overnight transcript, DNC line 2');
+    expect(row.textContent).not.toContain('thread-388032');
+    expect(row.textContent).toContain('Shredder Shredded.');
+    expect(row.textContent).toContain('3 replies');
+  });
+
   it('excludes archived by default and refetches with the flag when toggled', async () => {
     const spy = vi
       .spyOn(api, 'listThreads')

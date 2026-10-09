@@ -681,6 +681,12 @@ defmodule CytaleWeb.GatewayCompatSessionTest do
       {msg, targets} = deliver_thread_reply(general.channel_id, thread.thread_id, parent.user_id, "a thread reply")
       assert targets >= 1
 
+      # The thread was made after Identify without a THREAD_CREATE, so the
+      # session first hears about it (2026-10-08 Hermes fix).
+      announced = next_json!(conn, 5_000)
+      assert announced["t"] == "THREAD_CREATE"
+      assert announced["d"]["id"] == Integer.to_string(thread.thread_id)
+
       dispatch = next_json!(conn, 5_000)
       assert dispatch["t"] == "MESSAGE_CREATE"
 

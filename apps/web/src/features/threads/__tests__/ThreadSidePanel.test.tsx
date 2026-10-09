@@ -263,6 +263,34 @@ describe('ThreadSidePanel', () => {
     expect(threads.markUnread).not.toHaveBeenCalled();
   });
 
+  it("names a thread with a generated name by its start message (2026-10-08)", () => {
+    const store = makeStore();
+    store.setState((s) => ({
+      threadsById: { ...s.threadsById, [THREAD]: { ...s.threadsById[THREAD]!, name: 'thread-388032' } },
+    }));
+    const threads = makeThreads(store);
+    render(
+      <ThreadSidePanel
+        threadId={THREAD}
+        channelId={CHANNEL}
+        store={store}
+        threads={threads}
+        parentMessage={{ ...PARENT, content: '**Backup** finished: 3 hosts' }}
+      />,
+    );
+    expect(screen.getByTestId('thread-title').textContent).toBe('Backup finished: 3 hosts');
+  });
+
+  it('keeps a generated name when the start message is not loaded', () => {
+    const store = makeStore();
+    store.setState((s) => ({
+      threadsById: { ...s.threadsById, [THREAD]: { ...s.threadsById[THREAD]!, name: 'thread-388032' } },
+    }));
+    const threads = makeThreads(store);
+    render(<ThreadSidePanel threadId={THREAD} channelId={CHANNEL} store={store} threads={threads} />);
+    expect(screen.getByTestId('thread-title').textContent).toBe('thread-388032');
+  });
+
   it('shows the thread title and the thread-scope level control, inheriting its channel', () => {
     const store = makeStore();
     const threads = makeThreads(store);

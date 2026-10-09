@@ -64,6 +64,8 @@ import {
 } from '../../components/shadcn/dropdown-menu.js';
 import type { PermalinkMinter } from '../messages/messagePermalink.js';
 import { useThreads, type UseThreads } from './useThreads.js';
+import { messagePreview, threadSubject } from './threadRows.js';
+import { channelNameOf } from '../messages/ChannelMentionPill.js';
 import { NotificationLevelControl } from '../notifications/NotificationLevelControl.js';
 import { threadTarget } from '../notifications/notificationPrefs.js';
 import { paneCloseButtonClass } from '../../app/ui/button.js';
@@ -386,7 +388,20 @@ export function ThreadSidePanel({
       );
   }, [t, thread, threadId]);
 
-  const title = thread?.name ?? draftName ?? (threadId === null ? 'New thread' : `Thread ${threadId}`);
+  // A name nobody chose (a bot's `thread-388032`) gives way to the start
+  // message, as in the thread list.
+  const resolveChannel = useCallback((id: string) => channelNameOf(store, id), [store]);
+  const title =
+    thread != null
+      ? threadSubject(
+          {
+            name: thread.name,
+            starter: thread.starter ?? (parentMessage != null ? messagePreview(parentMessage) : null),
+          },
+          resolveMention,
+          resolveChannel,
+        )
+      : draftName ?? (threadId === null ? 'New thread' : `Thread ${threadId}`);
 
   // Resolve the pinned parent's attribution once (three props share it).
   const parentAttribution = parentMessage == null ? null : attributionFor(parentMessage);

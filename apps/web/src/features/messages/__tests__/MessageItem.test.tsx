@@ -1794,6 +1794,22 @@ describe('MessageItem — seed-message thread indicator', () => {
     expect(indicator.textContent).not.toContain('last activity');
   });
 
+  it("leaves out a name nobody chose, since the message it stands for is right above", () => {
+    render(
+      <MessageItem
+        message={makeMessage()}
+        currentUserId={ME}
+        thread={{ id: 't-3', name: 'thread-388032', messageCount: 15, latestReplyAt: '2026-09-10T20:00:00Z' }}
+      />,
+    );
+    const indicator = screen.getByTestId('thread-indicator');
+    expect(indicator.textContent).not.toContain('thread-388032');
+    expect(indicator.textContent).not.toContain('›');
+    expect(indicator.textContent).toContain('15 replies');
+    expect(indicator.textContent).toContain('last activity');
+    expect(indicator.getAttribute('aria-label')).toBe('Open thread. 15 replies.');
+  });
+
   it('renders nothing when the message seeds no thread', () => {
     render(<MessageItem message={makeMessage()} currentUserId={ME} />);
     expect(screen.queryByTestId('thread-indicator')).toBeNull();

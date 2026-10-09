@@ -13,6 +13,7 @@ import {
   isEmphasisNode,
   parseInlineMarkdown,
   parseMarkdownBlocks,
+  timestampPlainText,
   type InlineNode,
   type MentionResolver,
 } from '@cytale/markdown';
@@ -57,6 +58,7 @@ const EXPECTED_ATOMS: Record<InlineNode['type'], readonly TerminalStyleAtom[]> =
   text: [],
   mention: [],
   channel: [],
+  timestamp: [],
   code: ['code'],
   link: [],
   image: [],
@@ -314,6 +316,13 @@ describe('degradation', () => {
     expect(render('![local](d.png)')).toBe('local (d.png)');
   });
 
+  it('prints a timestamp tag as its moment — a countdown too, since a printed line never ticks', () => {
+    const out = render('answer <t:1791328800:R> or it will NOT run');
+    expect(out).not.toContain('<t:');
+    expect(out).not.toMatch(/\bin \d+ minutes?\b/);
+    expect(out).toContain('2026');
+  });
+
   it('degrades a table to its cell text, without the alignment row', () => {
     const out = render('| name | value |\n| --- | --- |\n| one | two |');
     expect(out).toBe('name | value\none | two');
@@ -475,6 +484,7 @@ describe('the terminal renders the shared parse tree', () => {
           if (node.type === 'mention') return `@${node.userId}`;
           if (node.type === 'channel') return `#${node.channelId}`;
           if (node.type === 'image') return node.alt !== '' ? `${node.alt} (${node.src})` : node.src;
+          if (node.type === 'timestamp') return timestampPlainText(node);
           return node.text;
         })
         .join('');

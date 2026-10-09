@@ -379,6 +379,27 @@ export interface Thread {
   } | null;
   created_at: ISO8601;
   updated_at?: ISO8601 | null;
+  /**
+   * The message the thread was started from (the channel roster read only;
+   * null when that message is gone).
+   */
+  starter?: ThreadMessagePreview | null;
+  /** The newest reply (the channel roster read only; null with no replies). */
+  latest_reply?: ThreadMessagePreview | null;
+}
+
+/** One message as the thread roster previews it. */
+export interface ThreadMessagePreview {
+  id: Snowflake;
+  author_id: Snowflake;
+  /** A webhook's per-message name, which the roster cannot resolve. */
+  author_name: string | null;
+  /** Raw markdown, cut to 300 characters. */
+  content: string;
+  /** The first embed's title, for a message that is only a card. */
+  embed_title: string | null;
+  attachment_count: number;
+  created_at: ISO8601;
 }
 
 /** Wire-exact thread shape (mirrors protocol ThreadCreate). */

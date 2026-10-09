@@ -2,7 +2,7 @@
   "name": "@cytale/tui",
   "license": "BSD-3-Clause",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "description": "Hrmny terminal client (Ink) — SSH mode and local mode",
   "scripts": {

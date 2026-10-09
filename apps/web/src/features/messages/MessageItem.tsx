@@ -76,6 +76,7 @@ import {
 } from './messageActionsPlacement.js';
 import type { EmbedField, EmbedMediaRef, MessageEmbed, MessageWithBots } from './types.js';
 import { FailedSendBar, PendingSendMark, isLocalSendRow } from './SendStatus.js';
+import { isGeneratedThreadName } from '../threads/threadRows.js';
 
 /** How far the hover pill overlaps its own row (shell.css `.message-actions`). */
 const ACTIONS_OVERLAP = 6;
@@ -1003,6 +1004,7 @@ export const MessageItem = memo(function MessageItem({
   viewOnly = false,
   canRemind = false,
 }: MessageItemProps) {
+  const threadNamed = thread != null && !isGeneratedThreadName(thread.name);
   const online = useOnlineStatus();
   const isAuthor = currentUserId !== null && message.author_id === currentUserId;
   const canDelete = isAuthor || canManageMessages;
@@ -1406,15 +1408,17 @@ export const MessageItem = memo(function MessageItem({
              than as a footnote to the message above it (user direction
              2026-09-12: "the thread existence indicator's ... a little too
              inconspicuous"). The thread's name is the seed message's own
-             words, so it stays secondary. */
+             words, so it stays secondary, and a name nobody chose (a bot's
+             `thread-388032`) is left out: the message it would stand for is
+             right above. */
           <button
             type="button"
             className="thread-indicator"
             data-testid="thread-indicator"
             data-thread-id={thread.id}
             onClick={() => onOpenThread?.(thread.id)}
-            title={`Open thread: ${thread.name}`}
-            aria-label={`Open thread: ${thread.name}. ${
+            title={threadNamed ? `Open thread: ${thread.name}` : 'Open thread'}
+            aria-label={`${threadNamed ? `Open thread: ${thread.name}` : 'Open thread'}. ${
               thread.messageCount === 1 ? '1 reply' : `${thread.messageCount} replies`
             }.`}
           >
@@ -1424,10 +1428,14 @@ export const MessageItem = memo(function MessageItem({
             <span className="thread-indicator-count">
               {thread.messageCount === 1 ? '1 reply' : `${thread.messageCount} replies`}
             </span>
-            <span aria-hidden className="thread-indicator-chevron">
-              ›
-            </span>
-            <span className="thread-indicator-name">{thread.name}</span>
+            {threadNamed ? (
+              <>
+                <span aria-hidden className="thread-indicator-chevron">
+                  ›
+                </span>
+                <span className="thread-indicator-name">{thread.name}</span>
+              </>
+            ) : null}
             {thread.latestReplyAt !== null ? (
               <span className="thread-indicator-meta">
                 · last activity {formatTime(thread.latestReplyAt)}

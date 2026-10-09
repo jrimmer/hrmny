@@ -108,6 +108,19 @@ export function formatShortDate(iso: string): string {
   return d === null ? iso : SHORT_DATE.format(d);
 }
 
+const MONTH_DAY_YEAR = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+/** "Oct 4" — "Oct 4, 2025" once it is another year. */
+export function formatMonthDay(iso: string, now: number = Date.now()): string {
+  const d = parse(iso);
+  if (d === null) return iso;
+  return d.getFullYear() === new Date(now).getFullYear() ? MONTH_DAY.format(d) : MONTH_DAY_YEAR.format(d);
+}
+
 /** "9/12/2026, 12:36:00 PM" — tooltips that want the full stamp. */
 export function formatDateTime(iso: string): string {
   const d = parse(iso);
