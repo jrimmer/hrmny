@@ -19,7 +19,7 @@
     "@cytale/protocol": "workspace:*",
     "@cytale/session": "workspace:*",
     "@cytale/state": "workspace:*",
-    "ink": "^7.1.1",
+    "ink": "^8.0.0",
     "react": "^19.2.3"
   },
   "devDependencies": {
