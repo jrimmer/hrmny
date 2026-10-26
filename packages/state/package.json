@@ -16,13 +16,13 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^26.3.0",
+    "@types/node": "^26.6.5",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   },
   "dependencies": {
     "@cytale/domain": "workspace:*",
     "@cytale/protocol": "workspace:*",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.16"
   }
 }
