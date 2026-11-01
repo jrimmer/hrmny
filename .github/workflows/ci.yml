@@ -28,7 +28,7 @@ jobs:
       CI: "true"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Install workspace deps
@@ -73,7 +73,7 @@ jobs:
         with:
           otp-version: "27"
           elixir-version: "1.18"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Native build deps
